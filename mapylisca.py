@@ -24,16 +24,19 @@ import numpy as np
 import screeninfo
 import imageio
 import copy
+import cv2
 
 
 ## options ##
 output_path = "scan-data/"
+output_format = "jpg"
 line_height = 2
 roi_height = 16
 start_with_roi = False
 initial_exposure = 0
-initial_framerate = 100
+initial_framerate = 2000
 output_height = 512
+output_rotate = True
 #######################
 
 output_size = (2064, output_height)
@@ -46,6 +49,7 @@ process = True
 fullscreen = False
 
 line_count = 1
+frame_count = 0
 line_index = int(input_size[1]/2) - int(line_height/2)
 
 cam = None
@@ -55,11 +59,13 @@ scan_data = None
 black_frame = None
 last_full_frame = None
 texture_id = 0
+do_write_frame = False
 
 time_start = 0
 elapsed = 0
 elapsed_total = 0
 fps_timer_start = 0
+last_print_time = 0
 fps = 0
 text = ''
 
@@ -67,8 +73,9 @@ thread_quit = 0
 videowriter = None
 video_thread = None
 tile_buffer = []
+tile_size = None
 tile_texture_ids = []
-shift_tiles = True
+do_shift_tiles = True
 
 screen_id = 0
 screen = screeninfo.get_monitors()[screen_id]
@@ -79,6 +86,7 @@ def init():
   global cam, img, process
   global data, scan_data
   global input_size, output_size
+  global output_path
   global full_size
   global line_height
   global fps, fps_timer_start, time_start
@@ -87,7 +95,7 @@ def init():
   global tile_buffer
   global black_frame
   global last_full_frame
-    
+
   # open camera
   cam = xiapi.Camera()
   print('Opening first camera...')
@@ -121,8 +129,8 @@ def init():
     cam.get_image(img)
     input_size = (img.width, img.height)
     cam.disable_auto_wb()
-    cam.disable_aeag()    
-     
+    cam.disable_aeag()   
+   
   output_size = (img.width, output_size[1])
   black_frame = np.zeros((output_size[1], output_size[0], 3), dtype=c_ubyte)
   scan_data = copy.deepcopy(black_frame)
@@ -153,20 +161,29 @@ def init():
   fps_timer_start =  time.time()
 
   # start storing scan results as video
-  outfile = '{}/{}.avi'.format(output_path, time.strftime("%Y-%m-%d_%H-%M_%S", time.gmtime()))
+  outfile = '{}/{}.avi'.format(output_path, time.strftime("%Y-%m-%d_%H-%M-%S", time.gmtime()))
   os.makedirs(os.path.dirname(outfile), exist_ok=True)
-  videowriter = imageio.get_writer(outfile, 
-    format='FFMPEG', 
-    mode='I', 
-    fps=25, 
-    codec='mjpeg', 
-    output_params=['-q:v','1'],
-    #pixelformat='yuvj420p'
-  )
+  
+  if output_format.lower() in ["jpg","jpeg","png"]:
+    output_path = '{}/{}'.format(output_path, time.strftime("%Y-%m-%d_%H-%M-%S", time.gmtime()))
+    os.makedirs(output_path, exist_ok=True)
+  else:
+    videowriter = imageio.get_writer(outfile, 
+      format='FFMPEG', 
+      mode='I', 
+      fps=25, 
+      codec='mjpeg', 
+      output_params=['-q:v','1'],
+      #pixelformat='yuvj420p'
+    )
   
   # start video processing thread
   video_thread = Thread(target=update_frame, args=())
   video_thread.start()
+
+  # start video processing thread
+  video_writer_thread = Thread(target=update_write_frame, args=())
+  video_writer_thread.start()
   
      
 def init_gl(width, height):
@@ -197,41 +214,40 @@ def update_frame():
   global cam, img, text
   global data, scan_data
   global input_size, full_size, output_size
-  global line_height, fps, fps_timer_start, elapsed, line_count
-  global videoout
-  global shift_tiles
+  global line_height, fps, fps_timer_start, elapsed, elapse_total, line_count
+  global do_shift_tiles, do_write_frame
   global blackframe
   global last_full_frame
+  global frame_count
+  global videowriter
+  global elapsed_total
   
   line_input_index = int(input_size[1]/2) - int(line_height/2)
   line_output_index = 0
   elapsed_total = 0
-  frame_count = 0
   
   while(True):
     if process:
       start_frame = time.time()
-      
       cam.get_image(img)
       data = img.get_image_data_numpy()
       line_input_index = int(input_size[1]/2) - int(line_height/2)
       
       for i in range(0, line_height):        
         scan_data[line_output_index,:] = data[line_input_index + i,:]
-        
-      #for i in range(0, line_height):
-      #  scan_data = np.append(scan_data, [data[line_index + i,:]], 0)
-      #  scan_data = np.delete(scan_data, 0, 0)
-      
+        # scan_data = np.append(scan_data, [data[line_index + i,:]], 0)
+        # scan_data = np.delete(scan_data, 0, 0)
         line_output_index = line_output_index + 1
-        if line_output_index >= output_size[1] -1:
-          videowriter.append_data(scan_data)
+        if line_output_index >= output_size[1]:
+          #videowriter.append_data(scan_data)
           last_full_frame = copy.deepcopy(scan_data)
-          shift_tiles = True
+          do_shift_tiles = True
+          do_write_frame = True
           scan_data = black_frame.copy()
           line_output_index = 0
           frame_count = frame_count + 1
-
+          print('-----------------------------')
+      
       line_count = line_count + 1       
       
       if (line_count % 25 == 0):
@@ -239,8 +255,80 @@ def update_frame():
         seconds = end - fps_timer_start
         fps  = 25 / seconds
         fps_timer_start = end
+        
+      print(' #{:0.0f}/#{:0.0f} - frame render time: {:2.2f}ms '.format(line_count, frame_count, elapsed * 1000))
       
-      text = '{:02.0f}:{:02.0f}:{:02.0f} | LH={:0.0f} | #{:0.0f}/#{:0.0f} | REQ: {:02.0f}fps / REAL: {:02.0f}fps | EXP: {:2.2f}ms ({:0.0f}dB) | AE={:0.0f} WB={:0.0f} | {:2.0f}ms '.format(
+      elapsed = time.time() - start_frame
+      elapsed_total = time.time() - time_start   
+  
+    if thread_quit:
+      break
+  
+  print("")
+  cam.stop_acquisition
+  print("stopped camera acquisition")
+  cam.close_device()
+  print("closed device")
+  #videowriter.close()
+  #print("stopped writing file")
+
+
+def update_write_frame():
+  global last_full_frame
+  global thread_quit
+  global videowriter
+  global do_write_frame
+  global output_path
+  global output_format
+  global output_rotate
+  global output_format
+  
+  while(True):
+    if do_write_frame: 
+      if output_format.lower() in ["jpg","jpeg","png"]:
+        outfile = '{}/scan-{:06.0f}.{}'.format(output_path, frame_count, output_format)
+        if output_rotate:
+          imageio.imwrite(outfile, cv2.cvtColor(cv2.rotate(last_full_frame, cv2.ROTATE_90_COUNTERCLOCKWISE),  cv2.COLOR_RGB2BGR))
+        else:
+          imageio.imwrite(outfile, cv2.cvtColor(last_full_frame, cv2.COLOR_BGR2RGB))
+        print("saving: {}".format(outfile))
+      else:
+        if output_rotate:
+          videowriter.append_data(cv2.cvtColor(cv2.rotate(last_full_frame, cv2.ROTATE_90_COUNTERCLOCKWISE), cv2.COLOR_RGB2BGR)) 
+        else:
+          videowriter.append_data(cv2.cvtColor(last_full_frame), cv2.COLOR_RGB2BGR)
+      do_write_frame = False
+    if thread_quit:
+      break
+    time.sleep (0.01)
+    
+  if not output_format.lower() in ["jpg","jpeg","png"]:
+    videowriter.close() 
+  print("stopped writing file")
+
+
+def draw_gl_scene():
+  global texture_id, text, offset
+  global thread_quit
+  global line_count
+  global tile_buffer
+  global tile_size
+  global tile_texture_ids
+  global do_shift_tiles
+  global last_full_frame
+  global black_frame
+  global scan_data
+  global frame_count
+  global last_print_time
+  global elapsed_total  
+  
+  glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
+  glLoadIdentity()
+
+  if (time.time() - last_print_time > 0.5):
+    last_print_time = time.time()
+    if not thread_quit:
+      text = '{:02.0f}:{:02.0f}:{:02.0f} | LH={:0.0f} | #{:0.0f}/#{:0.0f} | REQ: {:3.0f}fps / REAL: {:3.0f}fps | EXP: {:2.2f}ms ({:1.0f}db) | AE={:0.0f} WB={:0.0f} | {:2.2f}ms '.format(
         (elapsed_total/3600.0),  (elapsed_total/60) % 60, (elapsed_total % 60), 
         line_height,
         frame_count,
@@ -253,41 +341,17 @@ def update_frame():
         cam.is_auto_wb(),
         elapsed * 1000
       )
-      print('\r' + text, end=" ... ")    
-        
-      elapsed = time.time() - start_frame
-      elapsed_total = time.time() - time_start   
-  
-    if thread_quit:
-      break
-  
-  print("")
-  cam.stop_acquisition
-  cam.close_device()
-  videowriter.close()
-
-
-def draw_gl_scene():
-  global texture_id, text, offset
-  global line_count
-  global tile_buffer
-  global tile_texture_ids
-  global shift_tiles
-  global last_full_frame
-  global black_frame
-  global scan_data
-  
-  glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
-  glLoadIdentity()
-
+      #print('\r' + text, end=" ... ")   
+    
   ratio = 1
   if (show_source):
     frame = data
     ratio = input_size[1]/input_size[0]
   else:
     frame = scan_data
-    ratio = (preview_size[0] - 2 * padding)/output_size[0]
-    tile_size = (round(output_size[0] * ratio), round(output_size[1] * ratio))
+    if not tile_size:
+      ratio = (preview_size[0] - 2 * padding)/output_size[0]
+      tile_size = (round(output_size[0] * ratio), round(output_size[1] * ratio))
 
   # prepare scan texture
   # tx_image = cv2.flip(frame, 0)
@@ -306,7 +370,10 @@ def draw_gl_scene():
   if len(tile_texture_ids) == 0:
     print('setup tiles')
     num_tiles = int(preview_size[1] / (output_size[1] * preview_size[0]/output_size[0]))
-    tile_texture_ids = glGenTextures(num_tiles)
+    if num_tiles > 1:
+      tile_texture_ids = glGenTextures(num_tiles)
+    else:
+      tile_texture_ids = [ glGenTextures(num_tiles)]
     black = Image.fromarray(black_frame).tobytes('raw', 'BGRX', 0, -1)
     for i in range(0, num_tiles):
       tile_buffer.append(black)
@@ -333,7 +400,7 @@ def draw_gl_scene():
   
   else:
     # shift tiles
-    if shift_tiles:
+    if do_shift_tiles:
       for i, buffer_id in enumerate(tile_texture_ids):
         if i < len(tile_texture_ids) - 1:
           tile_buffer[i] = copy.deepcopy(tile_buffer[i+1]) 
@@ -343,7 +410,7 @@ def draw_gl_scene():
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST); 
         glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, ix, iy, 0, GL_RGBA, GL_UNSIGNED_BYTE,  tile_buffer[i] )
-      shift_tiles = False
+      do_shift_tiles = False
           
     #offset = (line_count % output_size[1]) * line_height * ratio
     offset = 0 
@@ -416,12 +483,12 @@ def key_pressed(k, x, y):
     cam.set_framerate(max(5, cam.get_framerate() - 1))
   elif k == GLUT_KEY_UP:
     if cam.is_aeag:
-      cam.disable_aeag()         
-    cam.set_exposure(int(cam.get_exposure() * 1.1))
+      cam.disable_aeag()       
+    cam.set_exposure(int(cam.get_exposure() * 1.05))
   elif k == GLUT_KEY_DOWN: 
     if cam.is_aeag:
-      cam.disable_aeag()     
-    cam.set_exposure(int(cam.get_exposure() * 0.9))
+      cam.disable_aeag()    
+    cam.set_exposure(int(cam.get_exposure() * 0.95))
   elif k == b'w':   
     # w (white balance) 
     cam.disable_auto_wb()
@@ -459,7 +526,7 @@ def key_pressed(k, x, y):
     process = False
     cam.stop_acquisition()
     cam.disable_auto_wb()
-    cam.disable_aeag()      
+    cam.disable_aeag()  
     cam.set_height(roi_height)
     cam.set_offsetY(int(full_size[1]/2 - roi_height/2))
     cam.start_acquisition()
