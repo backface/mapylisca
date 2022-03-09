@@ -11,14 +11,13 @@
 #######################################
 
 from ximea import xiapi
-from PIL import ImageDraw, Image
+from threading import Thread
 from ctypes import *
 from OpenGL.GL import *
 from OpenGL.GLUT import *
 from OpenGL.GLU import *
-from threading import Thread
+from PIL import Image
 from gps import gps
-#import cv2
 import time, datetime
 import sys, os
 import numpy as np
@@ -26,23 +25,28 @@ import screeninfo
 import imageio
 import copy
 
+
+## options ##
 output_path = "scan-data/"
-file_format = "JPEG"
-line_height = 12
+line_height = 2
 roi_height = 16
-output_size = (2064, 512)
+start_with_roi = False
+initial_exposure = 0
+initial_framerate = 100
+output_height = 512
+#######################
+
+output_size = (2064, output_height)
 input_size = (640, 480)
 offset = 16
+padding = 32
 
-display = True
-write_log_file = False
 show_source = False
 process = True
 fullscreen = False
 
 line_count = 1
 line_index = int(input_size[1]/2) - int(line_height/2)
-exposure = 5000
 
 cam = None
 img = None
@@ -68,47 +72,63 @@ shift_tiles = True
 
 screen_id = 0
 screen = screeninfo.get_monitors()[screen_id]
-#width, height = screen.width, screen.height
 preview_size = (screen.height - 32, screen.height - 32)
 
 
 def init():
   global cam, img, process
   global data, scan_data
-  global input_size, full_size, output_size
-  global line_height, fps, fps_timer_start, time_start, elapsed
+  global input_size, output_size
+  global full_size
+  global line_height
+  global fps, fps_timer_start, time_start
   global videowriter  
   global video_thread
   global tile_buffer
   global black_frame
   global last_full_frame
     
-  # init camera
+  # open camera
   cam = xiapi.Camera()
   print('Opening first camera...')
   cam.open_device()
   
-  # settings
+  # setup camera 
   cam.set_imgdataformat('XI_RGB24')
-  cam.set_exposure(exposure)
-  cam.set_framerate(100)
-  #cam.enable_auto_wb()
-  #cam.enable_aeag()
+  if initial_exposure:
+    cam.set_exposure(initial_exposure)
+  else:
+    cam.enable_auto_wb()
+    cam.enable_aeag()
+  cam.set_framerate(initial_framerate)
   cam.set_acq_timing_mode("XI_ACQ_TIMING_MODE_FRAME_RATE_LIMIT")
   img = xiapi.Image()
+  
   print('Starting data acquisition...')
   cam.start_acquisition()
   
-  # get first image and dimensions
+  # get first image and set dimensions
   cam.get_image(img)
   input_size = (img.width, img.height)
   full_size = input_size
+    
+  # set up roi scan mode
+  if start_with_roi: 
+    cam.stop_acquisition()  
+    cam.set_height(roi_height)
+    cam.set_offsetY(int(full_size[1]/2)) 
+    cam.start_acquisition()
+    cam.get_image(img)
+    input_size = (img.width, img.height)
+    cam.disable_auto_wb()
+    cam.disable_aeag()    
+     
   output_size = (img.width, output_size[1])
   black_frame = np.zeros((output_size[1], output_size[0], 3), dtype=c_ubyte)
   scan_data = copy.deepcopy(black_frame)
   last_full_frame = copy.deepcopy(black_frame)
   
-
+  # print out camera infos
   print("cam infos")
   print("=========================")
   print("image size", img.width, img.height)
@@ -120,17 +140,19 @@ def init():
   print("get_offsetY:", cam.get_offsetY())
   print("set_height :", cam.get_height())
   print("is_iscooled :", cam.is_iscooled())
-  print("get_temp :", cam.get_temp())
-  print("get_chip_temp :", cam.get_chip_temp())
+  #print("get_temp :", cam.get_temp())
+  #print("get_chip_temp :", cam.get_chip_temp())
   print("get_framerate :", cam.get_framerate())
   print("get_acq_timing_mode", cam.get_acq_timing_mode())
   print("get_limit_bandwidth_mode",  cam.get_limit_bandwidth_mode())
   print("get_offsetY_increment", cam.get_offsetY_increment())
   print("=========================")
   
+  # start timers
   time_start = time.time()
   fps_timer_start =  time.time()
 
+  # start storing scan results as video
   outfile = '{}/{}.avi'.format(output_path, time.strftime("%Y-%m-%d_%H-%M_%S", time.gmtime()))
   os.makedirs(os.path.dirname(outfile), exist_ok=True)
   videowriter = imageio.get_writer(outfile, 
@@ -142,13 +164,9 @@ def init():
     #pixelformat='yuvj420p'
   )
   
+  # start video processing thread
   video_thread = Thread(target=update_frame, args=())
   video_thread.start()
-  
-  
-  #fmpeg_log_level="info",
-  #output_params=['-x265-params','keyint=50'])                                      
-  #pixelformat='vaapi_vld')
   
      
 def init_gl(width, height):
@@ -159,13 +177,13 @@ def init_gl(width, height):
   glDepthFunc(GL_LESS)
   #glDepthFunc(GL_LEQUAL);
   glEnable(GL_DEPTH_TEST)
-  #glDisable(GL_CULL_FACE);
-  #glShadeModel(GL_SMOOTH)
+  glDisable(GL_CULL_FACE);
   glMatrixMode(GL_PROJECTION)
   glLoadIdentity()
   gluPerspective(45.0, float(width)/float(height), 0.1, 100.0)
   glMatrixMode(GL_MODELVIEW)
   glEnable(GL_TEXTURE_2D)
+  
   # create texture
 	#GL_LINEAR is better looking than GL_NEAREST but seems slower.. ?
   #glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR)
@@ -222,7 +240,7 @@ def update_frame():
         fps  = 25 / seconds
         fps_timer_start = end
       
-      text = '\r{:02.0f}:{:02.0f}:{:02.0f} | LH={:0.0f} | #{:0.0f}/#{:0.0f} | REQ: {:02.0f}fps / REAL: {:02.0f}fps | EXP: {:2.2f}ms ({:0.0f}dB) | FRAME: {:3.0f}ms '.format(
+      text = '{:02.0f}:{:02.0f}:{:02.0f} | LH={:0.0f} | #{:0.0f}/#{:0.0f} | REQ: {:02.0f}fps / REAL: {:02.0f}fps | EXP: {:2.2f}ms ({:0.0f}dB) | AE={:0.0f} WB={:0.0f} | {:2.0f}ms '.format(
         (elapsed_total/3600.0),  (elapsed_total/60) % 60, (elapsed_total % 60), 
         line_height,
         frame_count,
@@ -231,9 +249,12 @@ def update_frame():
         fps, 
         cam.get_exposure()/1000,
         cam.get_gain(),
+        cam.is_aeag(),
+        cam.is_auto_wb(),
         elapsed * 1000
       )
-      print(text, end=" ... ")      
+      print('\r' + text, end=" ... ")    
+        
       elapsed = time.time() - start_frame
       elapsed_total = time.time() - time_start   
   
@@ -265,12 +286,11 @@ def draw_gl_scene():
     ratio = input_size[1]/input_size[0]
   else:
     frame = scan_data
-    ratio = preview_size[0]/output_size[0]
-    tile_size = (output_size[0] * ratio, output_size[1] * ratio)
+    ratio = (preview_size[0] - 2 * padding)/output_size[0]
+    tile_size = (round(output_size[0] * ratio), round(output_size[1] * ratio))
 
   # prepare scan texture
-
-  #tx_image = cv2.flip(frame, 0)
+  # tx_image = cv2.flip(frame, 0)
   tx_image = Image.fromarray(frame)
   ix = tx_image.size[0]
   iy = tx_image.size[1]
@@ -294,19 +314,6 @@ def draw_gl_scene():
       glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
       glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST); 
       glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, ix, iy, 0, GL_RGBA, GL_UNSIGNED_BYTE,  tile_buffer[i] )
-  
-  # shift tiles
-  if shift_tiles:
-    for i, buffer_id in enumerate(tile_texture_ids):
-      if i < len(tile_texture_ids) - 1:
-        tile_buffer[i] = copy.deepcopy(tile_buffer[i+1]) 
-      else:
-        tile_buffer[i] = Image.fromarray(last_full_frame).tobytes('raw', 'BGRX', 0, -1)
-      glBindTexture(GL_TEXTURE_2D, buffer_id)   
-      glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-      glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST); 
-      glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, ix, iy, 0, GL_RGBA, GL_UNSIGNED_BYTE,  tile_buffer[i] )
-    shift_tiles = False
  
   # show input souce
   if (show_source):  
@@ -315,22 +322,35 @@ def draw_gl_scene():
     glTranslatef(0.0, 0.0, 0.0);
     glRotatef(90, 0, 0, 1); 
     glBegin(GL_QUADS);
-    glTexCoord2f(0, 0); glVertex3f(-preview_size[0], -preview_size[1] * ratio - offset, 0);
-    glTexCoord2f(1, 0); glVertex3f( preview_size[0], -preview_size[1] * ratio - offset, 0);
-    glTexCoord2f(1, 1); glVertex3f( preview_size[0],  preview_size[1] * ratio - offset, 0);
-    glTexCoord2f(0, 1); glVertex3f(-preview_size[0],  preview_size[1] * ratio - offset, 0);
+    glTexCoord2f(0, 0); glVertex3f(-(preview_size[0] - 2* padding), - (preview_size[1] - 2* padding) * ratio - offset, 0);
+    glTexCoord2f(1, 0); glVertex3f( preview_size[0] - 2* padding, - (preview_size[1] - 2* padding) * ratio - offset, 0);
+    glTexCoord2f(1, 1); glVertex3f( preview_size[0] - 2* padding, (preview_size[1] - 2* padding) * ratio - offset, 0);
+    glTexCoord2f(0, 1); glVertex3f(-(preview_size[0] - 2* padding),  (preview_size[1] - 2* padding) * ratio - offset, 0);
     glEnd();
     glEnable(GL_TEXTURE_2D);
     glBindTexture(GL_TEXTURE_2D, texture_id) 
     glPopMatrix()
   
   else:
+    # shift tiles
+    if shift_tiles:
+      for i, buffer_id in enumerate(tile_texture_ids):
+        if i < len(tile_texture_ids) - 1:
+          tile_buffer[i] = copy.deepcopy(tile_buffer[i+1]) 
+        else:
+          tile_buffer[i] = Image.fromarray(last_full_frame).tobytes('raw', 'BGRX', 0, -1)
+        glBindTexture(GL_TEXTURE_2D, buffer_id)   
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST); 
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, ix, iy, 0, GL_RGBA, GL_UNSIGNED_BYTE,  tile_buffer[i] )
+      shift_tiles = False
+          
     #offset = (line_count % output_size[1]) * line_height * ratio
     offset = 0 
-    # tile buffer
+    # show tile buffers
     for i, buffer_id in enumerate(tile_texture_ids):
       glPushMatrix()
-      glTranslatef(-offset + preview_size[1] - ((len(tile_texture_ids) - i + 1) * 2 * tile_size[1] - tile_size[1]), 0.0, 0.0);
+      glTranslatef(-offset + (preview_size[1] - padding) - ((len(tile_texture_ids) - i + 1) * 2 * tile_size[1] - tile_size[1]), 0.0, 0.0);
       glRotatef(90, 0, 0, 1); 
       glEnable(GL_TEXTURE_2D);   
       glBindTexture(GL_TEXTURE_2D, buffer_id)           
@@ -342,10 +362,9 @@ def draw_gl_scene():
       glEnd();    
       glPopMatrix()
   
-    # main scan frame
+    # show main scan frame
     glPushMatrix()
-    glTranslatef(0.0, 0.0, 0.0);
-    glTranslatef(-offset + preview_size[1] - tile_size[1], 0.0, 0.0);  
+    glTranslatef(-offset + (preview_size[1] - padding) - tile_size[1], 0.0, 0.0);  
     glRotatef(90, 0, 0, 1); 
     glEnable(GL_TEXTURE_2D);
     glBindTexture(GL_TEXTURE_2D, texture_id)     
@@ -371,7 +390,7 @@ def draw_gl_scene():
   # draw text info
   glPushMatrix()
   glTranslatef(0.0, 0.0, -0.1)
-  gl_write(text, 32, 32)
+  gl_write(text, - len(text) * 9, preview_size[1] - padding - 13)
   glDisable(GL_TEXTURE_2D);
   glPopMatrix()
   
@@ -386,8 +405,8 @@ def key_pressed(k, x, y):
   global show_source, process, fullscreen
   global video_thread
 
-  # q(quit)
   if k == b'\x1b' or k == b'q':
+    # q(quit)
     thread_quit = 1
     video_thread.join()
     glutLeaveMainLoop()
@@ -396,19 +415,24 @@ def key_pressed(k, x, y):
   elif k == GLUT_KEY_LEFT:
     cam.set_framerate(max(5, cam.get_framerate() - 1))
   elif k == GLUT_KEY_UP:
+    if cam.is_aeag:
+      cam.disable_aeag()         
     cam.set_exposure(int(cam.get_exposure() * 1.1))
   elif k == GLUT_KEY_DOWN: 
+    if cam.is_aeag:
+      cam.disable_aeag()     
     cam.set_exposure(int(cam.get_exposure() * 0.9))
-  # w (white balance)
-  elif k == b'w':             
+  elif k == b'w':   
+    # w (white balance) 
+    cam.disable_auto_wb()
     cam.set_manual_wb(1)
-   # i (input toggle)
-  elif k == b'i':            
+  elif k == b'i':     
+    # i (input toggle)       
     show_source = not show_source
-  # a (all / full frame input)
-  elif k == b'a':             
+  elif k == b'l':
+    # l (live / full frame input)
     process = False
-    cam.stop_acquisition()
+    cam.stop_acquisition()     
     cam.set_offsetY(0)
     cam.set_height(full_size[1])
     cam.start_acquisition()     
@@ -416,20 +440,28 @@ def key_pressed(k, x, y):
     input_size = (img.width, img.height)
     line_index = int(input_size[1]/2) - int(line_height/2)
     process = True
-  # f (fullscreen)
+  elif k == b'a':
+    # a (auto exposure)
+    if cam.is_aeag():
+      cam.disable_aeag()
+    else:
+      cam.enable_aeag()
   elif k == b'f': 
+    # f (fullscreen)
     fullscreen = not fullscreen
     if fullscreen:
       glutFullScreen()
     else:
       glutPositionWindow(screen.width - preview_size[0], 8)
       glutReshapeWindow(preview_size[0], preview_size[1])
-  # x (ROI input)
   elif k == b'x': 
+    # x (ROI input)
     process = False
     cam.stop_acquisition()
+    cam.disable_auto_wb()
+    cam.disable_aeag()      
     cam.set_height(roi_height)
-    cam.set_offsetY(int(full_size[1]/2))
+    cam.set_offsetY(int(full_size[1]/2 - roi_height/2))
     cam.start_acquisition()
     cam.get_image(img)
     input_size = (img.width, img.height)
@@ -454,7 +486,7 @@ def windowReshapeFunc(width, height):
 
 def gl_write(text, x, y):
   line_height = 12
-  font = GLUT_BITMAP_HELVETICA_12
+  font = GLUT_BITMAP_9_BY_15
   glColor4f(1.0, 1.0, 1.0, 1.0);
   glRasterPos2i(x, y);
   for ch in text:
@@ -463,6 +495,7 @@ def gl_write(text, x, y):
       glRasterPos2i(x, y)
     else:
       glutBitmapCharacter(font, ord(ch))
+
 
 def run():
   glutInit(sys.argv)
