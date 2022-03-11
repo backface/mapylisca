@@ -17,7 +17,8 @@ from OpenGL.GL import *
 from OpenGL.GLUT import *
 from OpenGL.GLU import *
 from PIL import Image
-from gps import gps
+from gps import gps, WATCH_ENABLE
+import mygeo
 import time, datetime
 import sys, os
 import numpy as np
@@ -25,11 +26,13 @@ import screeninfo
 import imageio
 import copy
 import cv2
+import piexif
 
 
 ## options ##
 output_path = "scan-data/"
-output_format = "jpg"
+output_format = "jpg"  # "jpg","jpeg","tif","tiff", "avi"
+jpeg_quality = 95
 line_height = 2
 roi_height = 16
 start_with_roi = False
@@ -37,11 +40,14 @@ initial_exposure = 0
 initial_framerate = 2000
 output_height = 512
 output_rotate = True
+DEBUG_SPEED = False
 #######################
 
 output_size = (2064, output_height)
 input_size = (640, 480)
 padding = 32
+
+output_isVideo = output_format.lower() in ["mjpg", "mjpeg", "avi"]
 
 show_source = False
 process = True
@@ -50,6 +56,9 @@ fullscreen = False
 line_count = 1
 frame_count = 0
 line_index = int(input_size[1]/2) - int(line_height/2)
+total_lines_count = 0
+total_lines_index = 0
+dist = 0
 
 cam = None
 img = None
@@ -71,15 +80,18 @@ text = ''
 thread_quit = 0
 videowriter = None
 video_thread = None
+gpsd_thread = None
+gpsd = None
 tile_buffer = []
 tile_size = None
 tile_texture_ids = []
 do_shift_tiles = True
 
+
 screen_id = 0
 screen = screeninfo.get_monitors()[screen_id]
 preview_size = (screen.height - 32, screen.height - 32)
-
+      
 
 def init():
   global cam, img, process
@@ -94,6 +106,7 @@ def init():
   global tile_buffer
   global black_frame
   global last_full_frame
+  global scanlog_file, scanlog_file_single
 
   # open camera
   cam = xiapi.Camera()
@@ -162,11 +175,16 @@ def init():
   # start storing scan results as video
   outfile = '{}/{}.avi'.format(output_path, time.strftime("%Y-%m-%d_%H-%M-%S", time.gmtime()))
   os.makedirs(os.path.dirname(outfile), exist_ok=True)
-  
-  if output_format.lower() in ["jpg","jpeg","png"]:
+  scanlog_filename = outfile[:-4] + ".log"
+  scanlog_file= open(scanlog_filename, "w", buffering=1)	
+      
+  if not output_isVideo:
     output_path = '{}/{}'.format(output_path, time.strftime("%Y-%m-%d_%H-%M-%S", time.gmtime()))
     os.makedirs(output_path, exist_ok=True)
+    scanlog_filename = '{}/scan-{:06.0f}.{}'.format(output_path, frame_count+1, "log")
+    scanlog_file_single = open(scanlog_filename, "w", buffering=1)	       
   else:
+    scanlog_file_single = None
     videowriter = imageio.get_writer(outfile, 
       format='FFMPEG', 
       mode='I', 
@@ -175,14 +193,6 @@ def init():
       output_params=['-q:v','1'],
       #pixelformat='yuvj420p'
     )
-  
-  # start video processing thread
-  video_thread = Thread(target=update_frame, args=())
-  video_thread.start()
-
-  # start output writing thread
-  video_writer_thread = Thread(target=update_write_frame, args=())
-  video_writer_thread.start()
   
      
 def init_gl(width, height):
@@ -214,6 +224,7 @@ def update_frame():
   global frame_count
   global videowriter
   global elapsed_total
+  global total_lines_count, total_lines_index 
   
   line_input_index = int(input_size[1]/2) - int(line_height/2)
   line_output_index = 0
@@ -238,11 +249,14 @@ def update_frame():
           do_write_frame = True
           scan_data = black_frame.copy()
           line_output_index = 0
-          frame_count = frame_count + 1
-          print('-----------------------------')
-          print('finished frame ...')
-          print('-----------------------------')
-      line_count = line_count + 1       
+          frame_count = frame_count + 1          
+          if DEBUG_SPEED:
+            print('-----------------------------')
+            print('finished frame ...')
+            print('-----------------------------')
+      line_count = line_count + 1
+      total_lines_count = total_lines_count + 1
+      total_lines_index = line_output_index
       
       if (line_count % 25 == 0):
         end = time.time()
@@ -250,7 +264,8 @@ def update_frame():
         fps  = 25 / seconds
         fps_timer_start = end
         
-      print(' #{:0.0f}/#{:0.0f} - frame render time: {:2.2f}ms '.format(line_count, frame_count, elapsed * 1000))
+      if DEBUG_SPEED:
+        print(' #{:0.0f}/#{:0.0f} - frame render time: {:2.2f}ms '.format(line_count, frame_count, elapsed * 1000))
       elapsed = time.time() - start_frame
       elapsed_total = time.time() - time_start   
       
@@ -261,7 +276,9 @@ def update_frame():
   print("stopped camera acquisition")
   cam.close_device()
   print("closed device")
-  
+
+
+          
 
 def update_write_frame():
   global last_full_frame
@@ -272,26 +289,72 @@ def update_write_frame():
   global output_format
   global output_rotate
   global output_format
-  
+  global jpeg_quality
+  global gpsd
+  global scanlog_file, scanlog_file_single
+
   while(True):
     if do_write_frame: 
-      if output_format.lower() in ["jpg","jpeg","png"]:
-        outfile = '{}/scan-{:06.0f}.{}'.format(output_path, frame_count, output_format)
-        if output_rotate:
-          imageio.imwrite(outfile, cv2.cvtColor(cv2.rotate(last_full_frame, cv2.ROTATE_90_COUNTERCLOCKWISE),  cv2.COLOR_RGB2BGR))
+      # write as single images
+      
+      if not output_isVideo:
+        # write exif tags
+        zeroth_ifd = {
+          piexif.ImageIFD.Artist: u"Michael Aschauer",
+          piexif.ImageIFD.Make: "XIMEA",  # ASCII, count any
+          piexif.ImageIFD.XResolution: (72, 1),
+          piexif.ImageIFD.YResolution: (72, 1),
+          piexif.ImageIFD.Software: u"mapylisca"
+        }
+        exif_ifd = {
+          piexif.ExifIFD.DateTimeOriginal: time.strftime("%Y:%m:%d %H:%M:%S", time.gmtime())
+        }
+        #gps exif data
+        if gpsd:
+          lat_deg = mygeo.toDegMinSec(gpsd.fix.latitude)
+          lng_deg = mygeo.toDegMinSec(gpsd.fix.longitude)
+          gps_ifd = {
+            piexif.GPSIFD.GPSLatitude: (mygeo.toRational(lat_deg[0]), mygeo.toRational(lat_deg[1]), mygeo.toRational(lat_deg[2])),
+            piexif.GPSIFD.GPSLongitude: (mygeo.toRational(lng_deg[0]), mygeo.toRational(lng_deg[1]), mygeo.toRational(lng_deg[2])),
+            piexif.GPSIFD.GPSLatitudeRef: mygeo.toLatRef(gpsd.fix.latitude),
+            piexif.GPSIFD.GPSLongitudeRef: mygeo.toLonRef(gpsd.fix.longitude),
+            piexif.GPSIFD.GPSVersionID: (2, 0, 0, 0),
+          }
+          exif_dict = {"0th": zeroth_ifd, "Exif": exif_ifd, "GPS": gps_ifd }
         else:
-          imageio.imwrite(outfile, cv2.cvtColor(last_full_frame, cv2.COLOR_BGR2RGB))
+          exif_dict = {"0th": zeroth_ifd, "Exif": exif_ifd }
+        exif_bytes = piexif.dump(exif_dict)        
+        
+        outfile = '{}/scan-{:06.0f}.{}'.format(output_path, frame_count, output_format)
+        
+        if output_format.lower() in ["jpg", "jpeg"]:
+          if output_rotate:
+            imageio.imwrite(outfile, cv2.cvtColor(cv2.rotate(last_full_frame, cv2.ROTATE_90_COUNTERCLOCKWISE),  cv2.COLOR_RGB2BGR), quality=jpeg_quality, exif = exif_bytes)
+          else:
+            imageio.imwrite(outfile, cv2.cvtColor(last_full_frame, cv2.COLOR_BGR2RGB), quality=jpeg_quality, exif = exif_bytes)
+        else:
+          if output_rotate:
+            imageio.imwrite(outfile, cv2.cvtColor(cv2.rotate(last_full_frame, cv2.ROTATE_90_COUNTERCLOCKWISE),  cv2.COLOR_RGB2BGR))
+          else:
+            imageio.imwrite(outfile, cv2.cvtColor(last_full_frame, cv2.COLOR_BGR2RGB))       
         print("saving: {}".format(outfile))
+        
+        scanlog_file_single.close()
+        scanlog_filename = '{}/scan-{:06.0f}.{}'.format(output_path, frame_count+1, "log")
+        scanlog_file_single= open(scanlog_filename, "w", buffering=1)	         
+      
+      #write as video frames
       else:
         if output_rotate:
           videowriter.append_data(cv2.cvtColor(cv2.rotate(last_full_frame, cv2.ROTATE_90_COUNTERCLOCKWISE), cv2.COLOR_RGB2BGR)) 
         else:
           videowriter.append_data(cv2.cvtColor(last_full_frame), cv2.COLOR_RGB2BGR)
       do_write_frame = False
+      
     if thread_quit:
       break
     time.sleep (0.01)
-  if not output_format.lower() in ["jpg","jpeg","png"]:
+  if output_isVideo:
     videowriter.close() 
   print("stopped writing file")
 
@@ -311,27 +374,10 @@ def draw_gl_scene():
   global last_print_time
   global elapsed_total 
   global text
+  global gpsd
   
   glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
   glLoadIdentity()
-
-  if (time.time() - last_print_time > 0.5):
-    last_print_time = time.time()
-    if not thread_quit:
-      text = '{:02.0f}:{:02.0f}:{:02.0f} | LH={:0.0f} | #{:0.0f}/#{:0.0f} | REQ: {:3.0f}fps / REAL: {:3.0f}fps | EXP: {:2.2f}ms ({:1.0f}db) | AE={:0.0f} WB={:0.0f} | {:2.2f}ms '.format(
-        (elapsed_total/3600.0),  (elapsed_total/60) % 60, (elapsed_total % 60), 
-        line_height,
-        frame_count,
-        line_count,        
-        cam.get_framerate(), 
-        fps, 
-        cam.get_exposure()/1000,
-        cam.get_gain(),
-        cam.is_aeag(),
-        cam.is_auto_wb(),
-        elapsed * 1000
-      )
-      #print('\r' + text, end=" ... ")   
     
   ratio = 1
   if (show_source):
@@ -441,9 +487,42 @@ def draw_gl_scene():
   glPopMatrix()
 
   # draw text info
+  if (time.time() - last_print_time > 0.5):
+    last_print_time = time.time()
+    if not thread_quit:
+      text = '{:02.0f}:{:02.0f}:{:02.0f} | LH={:0.0f} | #{:0.0f}/#{:0.0f} | REQ: {:3.0f}fps / REAL: {:3.0f}fps | EXP: {:2.2f}ms ({:1.0f}db) | AE={:0.0f} WB={:0.0f} | {:2.2f}ms '.format(
+        (elapsed_total/3600.0),  (elapsed_total/60) % 60, (elapsed_total % 60), 
+        line_height,
+        frame_count,
+        line_count,        
+        cam.get_framerate(), 
+        fps, 
+        cam.get_exposure()/1000,
+        cam.get_gain(),
+        cam.is_aeag(),
+        cam.is_auto_wb(),
+        elapsed * 1000
+      )
+  if not gpsd:
+    text_gps = 'GPS: NA'
+  elif gpsd.fix.mode < 2:
+    text_gps = "GPS: NO FIX"
+  else:
+    text_gps = 'GPS: M={}, S={}, LAT={:02.6f}, LON={:02.6f}, ALT={:03.1f}, EPX={}, EPY={}'.format(
+      gpsd.fix.mode,
+      len(list(filter(lambda x: x.used, gpsd.satellites))),  
+      gpsd.fix.latitude,
+      gpsd.fix.longitude,
+      gpsd.fix.altitude,
+      gpsd.fix.epx,
+      gpsd.fix.epy
+    )
+    #print('\r' + text, end=" ... ")  
+
   glPushMatrix()
   glTranslatef(0.0, 0.0, -0.1)
   gl_write(text, - len(text) * 9, preview_size[1] - padding - 13)
+  gl_write(text_gps, - len(text) * 9, -(preview_size[1] - padding))
   glDisable(GL_TEXTURE_2D);
   glPopMatrix()
   
@@ -462,10 +541,12 @@ def key_pressed(k, x, y):
     # q (quit)
     thread_quit = 1
     video_thread.join()
+    video_writer_thread.join()
+    gpsd_thread.join()
     glutLeaveMainLoop()
   elif k == GLUT_KEY_RIGHT:
     # right (increase framertate)
-    cam.set_framerate(cam.get_framerate() + 1)
+    cam.set_framerate(cam.get_fraerate() + 1)
   elif k == GLUT_KEY_LEFT:
     # left (decrease framertate)
     cam.set_framerate(max(5, cam.get_framerate() - 1))
@@ -573,6 +654,98 @@ def run():
   glutMainLoop()
 
 
+class GpsPoller(Thread):
+  def __init__(self):
+    Thread.__init__(self)
+    global gpsd 
+    global thread_quit
+    gpsd = gps(mode=WATCH_ENABLE)
+    self.current_value = None
+    self.running = True
+ 
+  def run(self):
+    global gpsd
+    global thread_quit
+    global scanlog_file, scanlog_file_single
+    global dist
+    
+    last_lat = None
+    last_time = None
+    
+    while not thread_quit:
+      gpsd.next()
+      if last_time != gpsd.fix.time:
+        last_time = gpsd.fix.time
+        if gpsd.fix.mode > 1
+          if not output_isVideo:
+            write_logline(False)
+          write_logline()
+        if last_lat:
+          if abs(gpsd.fix.latitude - last_lat) > 0.001:
+            dist = dist + getDistance(gpsd.fix.latitude, last_lat, gpsd.fix.longitude, last_lon)
+            last_lat = gpsd.fix.latitude
+            last_lon = gpsd.fix.longitude
+        print("{}, {},  {}, {}, {}, {}, {}, {}, {}".format(
+          gpsd.fix.mode,
+          gpsd.fix.time,
+          total_lines_count,
+          gpsd.fix.latitude,
+          gpsd.fix.longitude,
+          gpsd.fix.altitude,
+          gpsd.fix.epx,
+          gpsd.fix.epy,      
+          dist
+        ))
+          
+    scanlog_file_single.close()
+    scanlog_file.close()
+
+
+def write_logline(globalFile=True):
+  global gpsd
+  global scanlog_file, scanlog_file_single
+  global total_lines_count, total_lines_index 
+
+  target = scanlog_file
+  if not globalFile:
+    target = scanlog_file_single   
+    
+  target.write("{}, {}, {}, {}, {}, {}\n".format(
+     total_lines_count if globalFile else total_lines_index,
+     gpsd.fix.latitude,
+     gpsd.fix.longitude,
+     gpsd.fix.altitude,
+     gpsd.fix.epx,
+     gpsd.fix.epy,     
+  ))
+  
+def write_logheader(globalFile=True):
+  global scanlog_file, scanlog_file_single
+  target = scanlog_file
+  if not globalFile:
+    target = scanlog_file_single   
+  target.write("#line, lat, lon, alt, epx, epy\n")
+  
+
 if __name__ == '__main__':
-  init()
-  run()
+  try:
+    init()
+    # start video processing thread
+    video_thread = Thread(target=update_frame, args=())
+    video_thread.start()
+
+    # start output writing thread
+    video_writer_thread = Thread(target=update_write_frame, args=())
+    video_writer_thread.start()
+    
+    #start gps polling thread    
+    gpsd_thread = GpsPoller()
+    gpsd_thread.start()
+    run()
+  except (KeyboardInterrupt, SystemExit): #when you press ctrl+c
+    print("\nKilling Thread...")
+    video_thread.join()
+    video_writer_thread.join()
+  print("Done.\nExiting.")
+
+
