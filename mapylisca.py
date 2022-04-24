@@ -43,7 +43,7 @@ initial_exposure = 0
 initial_framerate = 500
 output_height = 512
 output_rotate = True
-DEBUG_SPEED = True
+DEBUG_SPEED = False
 #######################
 
 output_size = (2064, output_height)
@@ -369,6 +369,7 @@ def update_write_frame():
         scanlog_file_single.close()
         scanlog_filename = '{}/scan-{:06.0f}.{}'.format(output_path, frame_count+1, "log")
         scanlog_file_single= open(scanlog_filename, "w", buffering=1)
+        write_logline(False)
 
       #write as video frames
       else:
@@ -419,7 +420,7 @@ def draw_gl_scene():
   else:
     frame = scan_data
     if not tile_size:
-      ratio = (preview_size[0] - 2 * padding)/output_size[0]
+      ratio = (preview_size[1] - 3 * padding)/output_size[0]
       tile_size = (round(output_size[0] * ratio), round(output_size[1] * ratio))
   
   # prepare scan frame texture
@@ -747,7 +748,7 @@ def key_pressed(k, x, y):
     glutLeaveMainLoop()
   elif k == GLUT_KEY_RIGHT:
     # right (increase framertate)
-    cam.set_framerate(cam.get_get_framerate() + 1)
+    cam.set_framerate(cam.get_framerate() + 1)
   elif k == GLUT_KEY_LEFT:
     # left (decrease framertate)
     cam.set_framerate(max(5, cam.get_framerate() - 1))
