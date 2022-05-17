@@ -34,16 +34,16 @@ import math
 ####################################
 
 output_path = "scan-data/"
-output_format = "jpg"  # "jpg","jpeg","tif","tiff", "avi"
+output_format = "avi"  # "jpg","jpeg","tif","tiff", "avi"
 jpeg_quality = 95
 line_height = 2
 roi_height = 8
 start_with_roi = False
 initial_exposure = 0
 initial_framerate = 500
-output_height = 512
+output_height = 256
 output_rotate = True
-DEBUG_SPEED = False
+DEBUG_SPEED = True
 #######################
 
 output_size = (2064, output_height)
@@ -136,8 +136,10 @@ def init():
   # open camera
   cam = xiapi.Camera()
   print('Opening first camera...')
-  cam.open_device()
-
+  # cam.open_device()
+  cam.open_device_by_SN('UPCBS2211020') # sn:UPCBS2211020 name:MU181CR-ON
+  #cam.open_device_by_SN('CECAU2019030')	# sn:CECAU2019030 name:MC031CG-SY-UB
+  
   # setup camera
   cam.set_imgdataformat('XI_RGB32')
   if initial_exposure:
@@ -253,6 +255,15 @@ def update_frame():
   global elapsed_total
   global total_lines_count, total_lines_index
 
+  global do_write_frame
+  global output_path
+  global output_format
+  global output_rotate
+  global output_format
+  global jpeg_quality
+  global gpsd
+  global scanlog_file, scanlog_file_single
+  
   line_input_index = int(input_size[1]/2) - int(line_height/2)
   line_output_index = 0
   elapsed_total = 0
@@ -295,35 +306,10 @@ def update_frame():
         print(' #{:0.0f}/#{:0.0f} - frame render time: {:2.2f}ms '.format(line_count, frame_count, elapsed * 1000))
       elapsed = time.time() - start_frame
       elapsed_total = time.time() - time_start
-
-    if thread_quit:
-      break
-  print("")
-  cam.stop_acquisition
-  print("stopped camera acquisition")
-  cam.close_device()
-  print("closed device")
-
-
-
-
-def update_write_frame():
-  global last_full_frame
-  global thread_quit
-  global videowriter
-  global do_write_frame
-  global output_path
-  global output_format
-  global output_rotate
-  global output_format
-  global jpeg_quality
-  global gpsd
-  global scanlog_file, scanlog_file_single
-
-  while(True):
-    if do_write_frame:
+      
+    if do_write_frame:     
+      frame_out = copy.deepcopy(last_full_frame)
       # write as single images
-
       if not output_isVideo:
         # write exif tags
         zeroth_ifd = {
@@ -356,14 +342,14 @@ def update_write_frame():
 
         if output_format.lower() in ["jpg", "jpeg"]:
           if output_rotate:
-            imageio.imwrite(outfile, cv2.cvtColor(cv2.rotate(last_full_frame, cv2.ROTATE_90_COUNTERCLOCKWISE),  cv2.COLOR_RGB2BGR), quality=jpeg_quality, exif = exif_bytes)
+            imageio.imwrite(outfile, cv2.cvtColor(cv2.rotate(frame_out, cv2.ROTATE_90_COUNTERCLOCKWISE),  cv2.COLOR_RGB2BGR), quality=jpeg_quality, exif = exif_bytes)
           else:
-            imageio.imwrite(outfile, cv2.cvtColor(last_full_frame, cv2.COLOR_BGR2RGB), quality=jpeg_quality, exif = exif_bytes)
+            imageio.imwrite(outfile, cv2.cvtColor(frame_out, cv2.COLOR_BGR2RGB), quality=jpeg_quality, exif = exif_bytes)
         else:
           if output_rotate:
-            imageio.imwrite(outfile, cv2.cvtColor(cv2.rotate(last_full_frame, cv2.ROTATE_90_COUNTERCLOCKWISE),  cv2.COLOR_RGB2BGR))
+            imageio.imwrite(outfile, cv2.cvtColor(cv2.rotate(frame_out, cv2.ROTATE_90_COUNTERCLOCKWISE),  cv2.COLOR_RGB2BGR))
           else:
-            imageio.imwrite(outfile, cv2.cvtColor(last_full_frame, cv2.COLOR_BGR2RGB))
+            imageio.imwrite(outfile, cv2.cvtColor(frame_out, cv2.COLOR_BGR2RGB))
         print("saving: {}".format(outfile))
 
         scanlog_file_single.close()
@@ -374,9 +360,92 @@ def update_write_frame():
       #write as video frames
       else:
         if output_rotate:
-          videowriter.append_data(cv2.cvtColor(cv2.rotate(last_full_frame, cv2.ROTATE_90_COUNTERCLOCKWISE), cv2.COLOR_RGB2BGR))
+          videowriter.append_data(cv2.cvtColor(cv2.rotate(frame_out, cv2.ROTATE_90_COUNTERCLOCKWISE), cv2.COLOR_RGB2BGR))
         else:
-          videowriter.append_data(cv2.cvtColor(last_full_frame), cv2.COLOR_RGB2BGR)
+          videowriter.append_data(cv2.cvtColor(frame_out), cv2.COLOR_RGB2BGR)
+      do_write_frame = False      
+
+    if thread_quit:
+      break
+  print("")
+  cam.stop_acquisition
+  print("stopped camera acquisition")
+  cam.close_device()
+  print("closed device")
+
+
+
+
+def update_write_frame():
+  global last_full_frame
+  global thread_quit
+  global videowriter
+  global do_write_frame
+  global output_path
+  global output_format
+  global output_rotate
+  global output_format
+  global jpeg_quality
+  global gpsd
+  global scanlog_file, scanlog_file_single
+
+  while(True):
+    if do_write_frame:     
+      frame_out = copy.deepcopy(last_full_frame)
+      # write as single images
+      if not output_isVideo:
+        # write exif tags
+        zeroth_ifd = {
+          piexif.ImageIFD.Artist: u"Michael Aschauer",
+          piexif.ImageIFD.Make: "XIMEA",  # ASCII, count any
+          piexif.ImageIFD.XResolution: (72, 1),
+          piexif.ImageIFD.YResolution: (72, 1),
+          piexif.ImageIFD.Software: u"mapylisca"
+        }
+        exif_ifd = {
+          piexif.ExifIFD.DateTimeOriginal: time.strftime("%Y:%m:%d %H:%M:%S", time.gmtime())
+        }
+        #gps exif data
+        if gpsd:
+          lat_deg = mygeo.toDegMinSec(gpsd.fix.latitude)
+          lng_deg = mygeo.toDegMinSec(gpsd.fix.longitude)
+          gps_ifd = {
+            piexif.GPSIFD.GPSLatitude: (mygeo.toRational(lat_deg[0]), mygeo.toRational(lat_deg[1]), mygeo.toRational(lat_deg[2])),
+            piexif.GPSIFD.GPSLongitude: (mygeo.toRational(lng_deg[0]), mygeo.toRational(lng_deg[1]), mygeo.toRational(lng_deg[2])),
+            piexif.GPSIFD.GPSLatitudeRef: mygeo.toLatRef(gpsd.fix.latitude),
+            piexif.GPSIFD.GPSLongitudeRef: mygeo.toLonRef(gpsd.fix.longitude),
+            piexif.GPSIFD.GPSVersionID: (2, 0, 0, 0),
+          }
+          exif_dict = {"0th": zeroth_ifd, "Exif": exif_ifd, "GPS": gps_ifd }
+        else:
+          exif_dict = {"0th": zeroth_ifd, "Exif": exif_ifd }
+        exif_bytes = piexif.dump(exif_dict)
+
+        outfile = '{}/scan-{:06.0f}.{}'.format(output_path, frame_count, output_format)
+
+        if output_format.lower() in ["jpg", "jpeg"]:
+          if output_rotate:
+            imageio.imwrite(outfile, cv2.cvtColor(cv2.rotate(frame_out, cv2.ROTATE_90_COUNTERCLOCKWISE),  cv2.COLOR_RGB2BGR), quality=jpeg_quality, exif = exif_bytes)
+          else:
+            imageio.imwrite(outfile, cv2.cvtColor(frame_out, cv2.COLOR_BGR2RGB), quality=jpeg_quality, exif = exif_bytes)
+        else:
+          if output_rotate:
+            imageio.imwrite(outfile, cv2.cvtColor(cv2.rotate(frame_out, cv2.ROTATE_90_COUNTERCLOCKWISE),  cv2.COLOR_RGB2BGR))
+          else:
+            imageio.imwrite(outfile, cv2.cvtColor(frame_out, cv2.COLOR_BGR2RGB))
+        print("saving: {}".format(outfile))
+
+        scanlog_file_single.close()
+        scanlog_filename = '{}/scan-{:06.0f}.{}'.format(output_path, frame_count+1, "log")
+        scanlog_file_single= open(scanlog_filename, "w", buffering=1)
+        write_logline(False)
+
+      #write as video frames
+      else:
+        if output_rotate:
+          videowriter.append_data(cv2.cvtColor(cv2.rotate(frame_out, cv2.ROTATE_90_COUNTERCLOCKWISE), cv2.COLOR_RGB2BGR))
+        else:
+          videowriter.append_data(cv2.cvtColor(frame_out), cv2.COLOR_RGB2BGR)
       do_write_frame = False
 
     if thread_quit:
@@ -744,7 +813,7 @@ def key_pressed(k, x, y):
     # q (quit)
     thread_quit = 1
     video_thread.join()
-    video_writer_thread.join()
+    # video_writer_thread.join()
     glutLeaveMainLoop()
   elif k == GLUT_KEY_RIGHT:
     # right (increase framertate)
@@ -1052,8 +1121,8 @@ if __name__ == '__main__':
     video_thread.start()
 
     # start output writing thread
-    video_writer_thread = Thread(target=update_write_frame, args=())
-    video_writer_thread.start()
+    # video_writer_thread = Thread(target=update_write_frame, args=())
+    # video_writer_thread.start()
 
     #start gps polling thread
     gpsd_thread = GpsPoller()
