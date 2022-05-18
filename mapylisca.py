@@ -28,6 +28,10 @@ import copy
 import cv2
 import piexif
 import math
+import getopt
+import json
+
+from control.elphel353 import Camera as Elphel
 
 
 # options
@@ -44,21 +48,39 @@ initial_framerate = 500
 output_height = 256
 output_rotate = True
 DEBUG_SPEED = True
+
+config = {
+  "output_path": "scan-data/",
+  "output_format": "avi",
+  "jpeg_quality": 95,
+  "line_height": 2,
+  "roi_height": 8,
+  "initial_exposure": 0,
+  "initial_framerate": 500,
+  "output_height": 256,
+  "start_with_roi": False,
+  "start_with_autoconfig": False,
+  "show_source": False,  
+  "output_rotate": True,
+  "fullscreen": True,
+  "ximea_device_id": None,
+  "DEBUG_SPEED": False,
+  "input": "ximea",
+  "camcontrol": "ximea"
+}
+
+
 #######################
 
-output_size = (2064, output_height)
+config_file = None
+output_size = (2064, config["output_height"])
 input_size = (640, 480)
 padding = 32
-
-output_isVideo = output_format.lower() in ["mjpg", "mjpeg", "avi"]
-
-show_source = False
 process = True
-fullscreen = True
 
 line_count = 1
 frame_count = 0
-line_index = int(input_size[1]/2) - int(line_height/2)
+line_index = int(input_size[1]/2) - int(config["line_height"]/2)
 total_lines_count = 0
 total_lines_index = 0
 dist = 0
@@ -113,18 +135,51 @@ cam_fps = 0
 cam_exp = 0
 cam_gain = 0
 
-
-
 mouse_pos = [0,0]
 
 
+
+def usage():
+	print("""
+usage: mapylisca.py [options]
+
+linescanner in python
+
+options:
+    -h, --help                  print usage
+    -c, --configfile=FILE       config file
+""")
+
+def process_args():
+	global config_file
+	global verbose
+  
+	try:
+		opts, args = getopt.getopt(sys.argv[1:], "hc:",
+			["help", "configfile=",])
+	except getopt.GetoptError:
+		# print help information and exit:
+		print("wrong options") # will print something like "option -a not recognized"
+		usage()
+		sys.exit(2)
+
+	for o, a in opts:
+		if o in ("-h", "--help"):
+			usage()
+			sys.exit()
+		elif o in ("-c", "--config_file"):
+			config_file = a
+		else:
+			assert False, "unhandled option"
+
+
 def init():
+  global config
   global cam, img, process
+  global elphel
   global data, scan_data
   global input_size, output_size
-  global output_path
   global full_size
-  global line_height
   global fps, fps_timer_start, time_start
   global videowriter
   global video_thread
@@ -132,83 +187,138 @@ def init():
   global black_frame
   global last_full_frame
   global scanlog_file, scanlog_file_single
+  global config_file
+  global output_isVideo
+  
+  if config_file:
+    if not os.path.exists(config_file):
+      print("can't find config")
+      sys.exit()
+  else:
+    if os.path.exists("mapylisca.json"):
+      config_file = "mapylisca.json"
+    elif os.path.exists("~/mapylisca.json"):
+     config_file = "~/mapylisca.json"
+  
+  if config_file:
+    print("using config file:", config_file)
+    f = open(config_file)
+    data = json.load(f)
+    for key in data:
+      config[key] = data[key]
+    f.close()
+  else:
+    print("don't use config file")
+    
+  output_isVideo = config["output_format"].lower() in ["mjpg", "mjpeg", "avi"]
+  
+  print("current config is:")
+  print(json.dumps(config, indent=4))
+  print("-------------------")
 
   # open camera
-  cam = xiapi.Camera()
-  print('Opening first camera...')
-  # cam.open_device()
-  cam.open_device_by_SN('UPCBS2211020') # sn:UPCBS2211020 name:MU181CR-ON
-  #cam.open_device_by_SN('CECAU2019030')	# sn:CECAU2019030 name:MC031CG-SY-UB
-  
-  # setup camera
-  cam.set_imgdataformat('XI_RGB32')
-  if initial_exposure:
-    cam.set_exposure(initial_exposure)
-  else:
-    cam.enable_auto_wb()
-    cam.enable_aeag()
-  cam.set_framerate(initial_framerate)
-  cam.set_acq_timing_mode("XI_ACQ_TIMING_MODE_FRAME_RATE_LIMIT")
-  img = xiapi.Image()
+  if config["input"] == "ximea":
+    cam = xiapi.Camera()
+    if config["ximea_device_id"]:
+      print('Opening camera id:', config["ximea_device_id"])
+      cam.open_device_by_SN(config["ximea_device_id"])
+    else:
+      print('Opening first camera...')
+      cam.open_device()
+    
+    # setup camera
+    cam.set_imgdataformat('XI_RGB32')
+    
+    if config["initial_exposure"]:
+      cam.set_exposure(config["initial_exposure"])
+    else:
+      cam.enable_auto_wb()
+      cam.enable_aeag()
+    cam.set_framerate(config["initial_framerate"])
+    cam.set_acq_timing_mode("XI_ACQ_TIMING_MODE_FRAME_RATE_LIMIT")
+    img = xiapi.Image()
 
-  print('Starting data acquisition...')
-  cam.start_acquisition()
-
-  # get first image and set dimensions
-  cam.get_image(img)
-  input_size = (img.width, img.height)
-  full_size = input_size
-
-  # set up roi scan mode
-  if start_with_roi:
-    cam.stop_acquisition()
-    cam.set_height(roi_height)
-    cam.set_offsetY(int(full_size[1]/2))
+    print('Starting data acquisition...')
     cam.start_acquisition()
+
+    # get first image and set dimensions
     cam.get_image(img)
     input_size = (img.width, img.height)
-    cam.disable_auto_wb()
-    cam.disable_aeag()
+    full_size = input_size
+    
+    if config["start_with_autoconfig"]:
+      counter = 0
+      read_frames = 25
+      while (counter < read_frames):
+        cam.get_image(img)
+        counter = counter + 1 
+        print("reading frame #{}/{}".format(counter, read_frames))
+      print("now go into scanning mode")
+      config["start_with_roi"] = True
 
-  output_size = (img.width, output_size[1])
+
+    # set up roi scan mode
+    if config["start_with_roi"]:
+      cam.stop_acquisition()
+      cam.set_height(config["roi_height"])
+      cam.set_offsetY(int(full_size[1]/2))
+      cam.start_acquisition()
+      cam.get_image(img)
+      input_size = (img.width, img.height)
+      cam.disable_auto_wb()
+      cam.disable_aeag()
+
+    # print out camera infos
+    print("cam infos")
+    print("=========================")
+    print("image size", img.width, img.height)
+    print("shutter type:", cam.get_shutter_type())
+    print("white balance is auto:", cam.is_auto_wb()) # enable_auto_wb
+    print("automatic exposure/gain:", cam.is_aeag()) # enable_aeg
+    print("get_gain:", cam.get_gain())
+    print("get_exposure:", cam.get_exposure())
+    print("get_offsetY:", cam.get_offsetY())
+    print("set_height :", cam.get_height())
+    print("is_iscooled :", cam.is_iscooled())
+    #print("get_temp :", cam.get_temp())
+    #print("get_chip_temp :", cam.get_chip_temp())
+    print("get_framerate :", cam.get_framerate())
+    print("get_acq_timing_mode", cam.get_acq_timing_mode())
+    print("get_limit_bandwidth_mode",  cam.get_limit_bandwidth_mode())
+    print("get_offsetY_increment", cam.get_offsetY_increment())
+    print("=========================")
+    
+    output_size = (img.width, output_size[1])
+  
+  elif config["input"] == "gstreamer":
+    cam = cv2.VideoCapture(config["pipeline"], cv2.CAP_GSTREAMER)
+    ret,frame = cam.read()
+    frame = cv2.cvtColor(frame, cv2.COLOR_RGB2RGBA)
+    input_size = (frame.shape[1], frame.shape[0])
+    full_size = input_size    
+    output_size = (frame.shape[1], output_size[0])
+    
+  if config["camcontrol"] == "elphel":
+    elphel = Elphel(config["ip"])
+
   black_frame = np.zeros((output_size[1], output_size[0], 4), dtype=c_ubyte)
   scan_data = copy.deepcopy(black_frame)
   last_full_frame = copy.deepcopy(black_frame)
-
-  # print out camera infos
-  print("cam infos")
-  print("=========================")
-  print("image size", img.width, img.height)
-  print("shutter type:", cam.get_shutter_type())
-  print("white balance is auto:", cam.is_auto_wb()) # enable_auto_wb
-  print("automatic exposure/gain:", cam.is_aeag()) # enable_aeg
-  print("get_gain:", cam.get_gain())
-  print("get_exposure:", cam.get_exposure())
-  print("get_offsetY:", cam.get_offsetY())
-  print("set_height :", cam.get_height())
-  print("is_iscooled :", cam.is_iscooled())
-  #print("get_temp :", cam.get_temp())
-  #print("get_chip_temp :", cam.get_chip_temp())
-  print("get_framerate :", cam.get_framerate())
-  print("get_acq_timing_mode", cam.get_acq_timing_mode())
-  print("get_limit_bandwidth_mode",  cam.get_limit_bandwidth_mode())
-  print("get_offsetY_increment", cam.get_offsetY_increment())
-  print("=========================")
 
   # start timers
   time_start = time.time()
   fps_timer_start =  time.time()
 
   # start storing scan results as video
-  outfile = '{}/{}.avi'.format(output_path, time.strftime("%Y-%m-%d_%H-%M-%S", time.gmtime()))
+  outfile = '{}/{}.avi'.format(config["output_path"], time.strftime("%Y-%m-%d_%H-%M-%S", time.gmtime()))
   os.makedirs(os.path.dirname(outfile), exist_ok=True)
   scanlog_filename = outfile[:-4] + ".log"
   scanlog_file= open(scanlog_filename, "w", buffering=1)
 
   if not output_isVideo:
-    output_path = '{}/{}'.format(output_path, time.strftime("%Y-%m-%d_%H-%M-%S", time.gmtime()))
-    os.makedirs(output_path, exist_ok=True)
-    scanlog_filename = '{}/scan-{:06.0f}.{}'.format(output_path, frame_count+1, "log")
+    config["output_path"] = '{}/{}'.format(config["output_path"], time.strftime("%Y-%m-%d_%H-%M-%S", time.gmtime()))
+    os.makedirs(config["output_path"], exist_ok=True)
+    scanlog_filename = '{}/scan-{:06.0f}.{}'.format(config["output_path"], frame_count+1, "log")
     scanlog_file_single = open(scanlog_filename, "w", buffering=1)
   else:
     scanlog_file_single = None
@@ -224,6 +334,7 @@ def init():
 
 def init_gl(width, height):
   global texture_id
+  
   glClearColor(0,0,0, 1.0)
   glClearDepth(1.0)
   #glDepthFunc(GL_LESS)
@@ -243,10 +354,11 @@ def init_gl(width, height):
 
 
 def update_frame():
+  global config  
   global cam, img, text
   global data, scan_data
   global input_size, full_size, output_size
-  global line_height, fps, fps_timer_start, elapsed, elapse_total, line_count
+  global fps, fps_timer_start, elapsed, elapse_total, line_count
   global do_shift_tiles, do_write_frame
   global blackframe
   global last_full_frame
@@ -254,28 +366,34 @@ def update_frame():
   global videowriter
   global elapsed_total
   global total_lines_count, total_lines_index
-
   global do_write_frame
-  global output_path
-  global output_format
-  global output_rotate
-  global output_format
-  global jpeg_quality
   global gpsd
   global scanlog_file, scanlog_file_single
+  global output_isVideo
   
-  line_input_index = int(input_size[1]/2) - int(line_height/2)
+  line_input_index = int(input_size[1]/2) - int(config["line_height"]/2)
   line_output_index = 0
   elapsed_total = 0
 
   while(True):
     if process:
       start_frame = time.time()
-      cam.get_image(img)
-      data = img.get_image_data_numpy()
-      line_input_index = int(input_size[1]/2) - int(line_height/2)
+      
+      if config["input"] == "ximea":
+        cam.get_image(img)
+        data = img.get_image_data_numpy()
+      elif config["input"] == "gstreamer":
+        ret,frame = cam.read()
+        if ret:
+          data = cv2.cvtColor(frame, cv2.COLOR_RGB2RGBA)
+        else:
+          print("video ended.")
+          quit()
+        
+      line_input_index = int(input_size[1]/2) - int(config["line_height"]/2)
 
-      for i in range(0, line_height):
+     
+      for i in range(0, config["line_height"]):
         scan_data[line_output_index,:] = data[line_input_index + i,:]
         # shift array (expensive)
         # scan_data = np.append(scan_data, [data[line_index + i,:]], 0)
@@ -288,7 +406,7 @@ def update_frame():
           scan_data = black_frame.copy()
           line_output_index = 0
           frame_count = frame_count + 1
-          if DEBUG_SPEED:
+          if config["DEBUG_SPEED"]:
             print('-----------------------------')
             print('finished frame ...')
             print('-----------------------------')
@@ -302,7 +420,7 @@ def update_frame():
         fps  = 25 / seconds
         fps_timer_start = end
 
-      if DEBUG_SPEED:
+      if config["DEBUG_SPEED"]:
         print(' #{:0.0f}/#{:0.0f} - frame render time: {:2.2f}ms '.format(line_count, frame_count, elapsed * 1000))
       elapsed = time.time() - start_frame
       elapsed_total = time.time() - time_start
@@ -338,28 +456,28 @@ def update_frame():
           exif_dict = {"0th": zeroth_ifd, "Exif": exif_ifd }
         exif_bytes = piexif.dump(exif_dict)
 
-        outfile = '{}/scan-{:06.0f}.{}'.format(output_path, frame_count, output_format)
+        outfile = '{}/scan-{:06.0f}.{}'.format(config["output_path"], frame_count, config["output_format"])
 
-        if output_format.lower() in ["jpg", "jpeg"]:
-          if output_rotate:
-            imageio.imwrite(outfile, cv2.cvtColor(cv2.rotate(frame_out, cv2.ROTATE_90_COUNTERCLOCKWISE),  cv2.COLOR_RGB2BGR), quality=jpeg_quality, exif = exif_bytes)
+        if config["output_format"].lower() in ["jpg", "jpeg"]:
+          if config["output_rotate"]:
+            imageio.imwrite(outfile, cv2.cvtColor(cv2.rotate(frame_out, cv2.ROTATE_90_COUNTERCLOCKWISE),  cv2.COLOR_RGB2BGR), quality=config["jpeg_quality"], exif = exif_bytes)
           else:
-            imageio.imwrite(outfile, cv2.cvtColor(frame_out, cv2.COLOR_BGR2RGB), quality=jpeg_quality, exif = exif_bytes)
+            imageio.imwrite(outfile, cv2.cvtColor(frame_out, cv2.COLOR_BGR2RGB), quality=config["jpeg_quality"], exif = exif_bytes)
         else:
-          if output_rotate:
+          if config["output_rotate"]:
             imageio.imwrite(outfile, cv2.cvtColor(cv2.rotate(frame_out, cv2.ROTATE_90_COUNTERCLOCKWISE),  cv2.COLOR_RGB2BGR))
           else:
             imageio.imwrite(outfile, cv2.cvtColor(frame_out, cv2.COLOR_BGR2RGB))
         print("saving: {}".format(outfile))
 
         scanlog_file_single.close()
-        scanlog_filename = '{}/scan-{:06.0f}.{}'.format(output_path, frame_count+1, "log")
+        scanlog_filename = '{}/scan-{:06.0f}.{}'.format(config["output_path"], frame_count+1, "log")
         scanlog_file_single= open(scanlog_filename, "w", buffering=1)
         write_logline(False)
 
       #write as video frames
       else:
-        if output_rotate:
+        if config["output_rotate"]:
           videowriter.append_data(cv2.cvtColor(cv2.rotate(frame_out, cv2.ROTATE_90_COUNTERCLOCKWISE), cv2.COLOR_RGB2BGR))
         else:
           videowriter.append_data(cv2.cvtColor(frame_out), cv2.COLOR_RGB2BGR)
@@ -368,12 +486,13 @@ def update_frame():
     if thread_quit:
       break
   print("")
-  cam.stop_acquisition
-  print("stopped camera acquisition")
-  cam.close_device()
-  print("closed device")
-
-
+  if config["input"] == "ximea":
+    cam.stop_acquisition
+    print("stopped camera acquisition")
+    cam.close_device()
+    print("closed device")
+  elif config["input"] == "gstreamer":
+    cam.release()
 
 
 def update_write_frame():
@@ -381,13 +500,9 @@ def update_write_frame():
   global thread_quit
   global videowriter
   global do_write_frame
-  global output_path
-  global output_format
-  global output_rotate
-  global output_format
-  global jpeg_quality
   global gpsd
   global scanlog_file, scanlog_file_single
+  global output_isVideo
 
   while(True):
     if do_write_frame:     
@@ -421,28 +536,28 @@ def update_write_frame():
           exif_dict = {"0th": zeroth_ifd, "Exif": exif_ifd }
         exif_bytes = piexif.dump(exif_dict)
 
-        outfile = '{}/scan-{:06.0f}.{}'.format(output_path, frame_count, output_format)
+        outfile = '{}/scan-{:06.0f}.{}'.format(config["output_path"], frame_count, config["output_format"])
 
-        if output_format.lower() in ["jpg", "jpeg"]:
-          if output_rotate:
-            imageio.imwrite(outfile, cv2.cvtColor(cv2.rotate(frame_out, cv2.ROTATE_90_COUNTERCLOCKWISE),  cv2.COLOR_RGB2BGR), quality=jpeg_quality, exif = exif_bytes)
+        if config["output_format"].lower() in ["jpg", "jpeg"]:
+          if config["output_rotate"]:
+            imageio.imwrite(outfile, cv2.cvtColor(cv2.rotate(frame_out, cv2.ROTATE_90_COUNTERCLOCKWISE),  cv2.COLOR_RGB2BGR), quality=config["jpeg_quality"], exif = exif_bytes)
           else:
-            imageio.imwrite(outfile, cv2.cvtColor(frame_out, cv2.COLOR_BGR2RGB), quality=jpeg_quality, exif = exif_bytes)
+            imageio.imwrite(outfile, cv2.cvtColor(frame_out, cv2.COLOR_BGR2RGB), quality=config["jpeg_quality"], exif = exif_bytes)
         else:
-          if output_rotate:
+          if config["output_rotate"]:
             imageio.imwrite(outfile, cv2.cvtColor(cv2.rotate(frame_out, cv2.ROTATE_90_COUNTERCLOCKWISE),  cv2.COLOR_RGB2BGR))
           else:
             imageio.imwrite(outfile, cv2.cvtColor(frame_out, cv2.COLOR_BGR2RGB))
         print("saving: {}".format(outfile))
 
         scanlog_file_single.close()
-        scanlog_filename = '{}/scan-{:06.0f}.{}'.format(output_path, frame_count+1, "log")
+        scanlog_filename = '{}/scan-{:06.0f}.{}'.format(config["output_path"], frame_count+1, "log")
         scanlog_file_single= open(scanlog_filename, "w", buffering=1)
         write_logline(False)
 
       #write as video frames
       else:
-        if output_rotate:
+        if config["output_rotate"]:
           videowriter.append_data(cv2.cvtColor(cv2.rotate(frame_out, cv2.ROTATE_90_COUNTERCLOCKWISE), cv2.COLOR_RGB2BGR))
         else:
           videowriter.append_data(cv2.cvtColor(frame_out), cv2.COLOR_RGB2BGR)
@@ -483,7 +598,7 @@ def draw_gl_scene():
   glLoadIdentity()
 
   ratio = 1
-  if (show_source):
+  if (config["show_source"]):
     frame = data
     ratio = input_size[1]/input_size[0]
   else:
@@ -507,7 +622,7 @@ def draw_gl_scene():
   # setup tile textures
   if len(tile_texture_ids) == 0:
     print('setup tiles')
-    num_tiles = int(preview_size[1] / (output_size[1] * preview_size[0]/output_size[0]))
+    num_tiles = max(1, int(preview_size[1] / (output_size[1] * preview_size[0]/output_size[0])))
     if num_tiles > 1:
       tile_texture_ids = glGenTextures(num_tiles)
     else:
@@ -521,7 +636,7 @@ def draw_gl_scene():
       glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, ix, iy, 0, GL_RGBA, GL_UNSIGNED_BYTE,  tile_buffer[i] )
 
   # show input souce
-  if (show_source):
+  if (config["show_source"]):
     ratio = input_size[1]/input_size[0]
     glPushMatrix()
     glTranslatef(0.0, 0.0, 0.0);
@@ -613,17 +728,17 @@ def draw_gl_scene():
   if (time.time() - last_print_time > 0.5):
     last_print_time = time.time()
     if not thread_quit:
-      cam_exp = cam.get_exposure()
-      cam_fps = cam.get_framerate()
-      cam_is_ae = cam.is_aeag()
-      cam_is_wb = cam.is_auto_wb()
-      cam_gain = cam.get_gain()
+      cam_exp = getExposure()
+      cam_fps = getFramerate()
+      cam_is_ae = getAE()
+      cam_is_wb = getAWB()
+      cam_gain = getGain()
       
       slider_exp_pos = microseconds2x(cam_exp)
       slider_fps_pos = fps2x(cam_fps)      
       text = '{:02.0f}:{:02.0f}:{:02.0f} | LH={:0.0f} | #{:0.0f}/#{:0.0f} | REQ: {:3.0f}fps / REAL: {:3.0f}fps | EXP: {:2.2f}ms ({:1.0f}db) | AE={:0.0f} WB={:0.0f} | {:2.2f}ms '.format(
         (elapsed_total/3600.0),  (elapsed_total/60) % 60, (elapsed_total % 60),
-        line_height,
+        config["line_height"],
         frame_count,
         line_count,
         cam_fps,
@@ -747,7 +862,7 @@ def draw_gl_scene():
   glDisable(GL_TEXTURE_2D);
   glTranslatef(-(preview_size[0]) + 2 * buttons_pos_x, (preview_size[1]) - 2 * button_input_pos_y, 0.1)
   glColor4f(1.0, 1.0, 1.0, 0.5)
-  if not show_source:
+  if not config["show_source"]:
     glBegin(GL_QUADS)
   else:
     glBegin(GL_LINE_LOOP)
@@ -757,7 +872,7 @@ def draw_gl_scene():
   glVertex3f(-50,-50, 0.0)
   glEnd()
   glTranslatef(0, 0, 0.1)
-  if not show_source:
+  if not config["show_source"]:
     glColor4f(1.0, 0.0, 0, 1.0)  
     gl_write_big('SCAN')
   else:
@@ -802,12 +917,14 @@ def draw_gl_scene():
 
 
 def key_pressed(k, x, y):
+  global config
   global thread_quit
   global cam
   global input_size, output_size
-  global line_index, line_height
-  global show_source, process, fullscreen, zoom_in
+  global line_index
+  global process, zoom_in
   global video_thread
+  global elphel
 
   if k == b'\x1b' or k == b'q':
     # q (quit)
@@ -815,83 +932,84 @@ def key_pressed(k, x, y):
     video_thread.join()
     # video_writer_thread.join()
     glutLeaveMainLoop()
-  elif k == GLUT_KEY_RIGHT:
-    # right (increase framertate)
-    cam.set_framerate(cam.get_framerate() + 1)
-  elif k == GLUT_KEY_LEFT:
-    # left (decrease framertate)
-    cam.set_framerate(max(5, cam.get_framerate() - 1))
+  elif k == GLUT_KEY_RIGHT: # right (increase framertate)
+    setFramerate(getFramerate() + 1)
+  elif k == GLUT_KEY_LEFT: # left (decrease framertate)
+    setFramerate(max(5, getFramerate() -1))
   elif k == GLUT_KEY_UP:
-    # up (increase exposure time)
-    if cam.is_aeag:
-      cam.disable_aeag()
-    cam.set_exposure(int(cam.get_exposure() * 1.05))
-  elif k == GLUT_KEY_DOWN:
-    # down (decrease exposure time)
-    if cam.is_aeag:
-      cam.disable_aeag()
-    cam.set_exposure(int(cam.get_exposure() * 0.95))
-  elif k == b'w':
-    # w (white balance)
-    cam.disable_auto_wb()
-    cam.set_manual_wb(1)
-  elif k == b'i':
-    # i (input toggle)
-    show_source = not show_source
-  elif k == b'z':
-    # i (input toggle)
+    if getAE():
+      disableAE()
+    setExposure(getExposure() * 1.05)
+  elif k == GLUT_KEY_DOWN: # down (decrease exposure time)
+    if getAE():
+      disableAE()
+    setExposure(getExposure() * 0.95)
+  elif k == b'w':  # w (white balance)
+    triggerWB()
+  elif k == b'i': # i (input toggle)
+    config["show_source"] = not config["show_source"]
+  elif k == b'z':  # x (zoom)
     zoom_in = not zoom_in    
-  elif k == b'l':
-    # l (live / full frame input)
+  elif k == b'l':  # l (live / full frame input)
     process = False
-    cam.stop_acquisition()
-    cam.set_offsetY(0)
-    cam.set_height(full_size[1])
-    cam.start_acquisition()
-    cam.get_image(img)
-    input_size = (img.width, img.height)
-    line_index = int(input_size[1]/2) - int(line_height/2)
+    if config['camcontrol'] == 'ximea':
+      cam.stop_acquisition()
+      cam.set_offsetY(0)
+      cam.set_height(full_size[1])
+      cam.start_acquisition()
+      cam.get_image(img)
+      input_size = (img.width, img.height)
+      line_index = int(input_size[1]/2) - int(config["line_height"]/2)
+    elif config['camcontrol'] == 'elphel':
+      elphel.stopStream()
+      elphel.setHeight(elphel.getMaxHeight())
+      line_index = int(input_size[1]/2) - int(config["line_height"]/2)
+      elphel.startStream()
     process = True
-  elif k == b'a':
-    # a (auto exposure)
-    if cam.is_aeag():
-      cam.disable_aeag()
+  elif k == b'a': # a (auto exposure)e
+    if getAE():
+      disableAE()
     else:
-      cam.enable_aeag()
-  elif k == b'f' or k == GLUT_KEY_F11:
-    # f (fullscreen)
-    fullscreen = not fullscreen
-    if fullscreen:
+      enableAE()
+  elif k == b'f' or k == GLUT_KEY_F11: # f (fullscreen)
+    config["fullscreen"] = not config["fullscreen"]
+    if config["fullscreen"]:
       preview_size[0] = screen.width - 32
       glutFullScreen()
     else:
       preview_size[0] = preview_size[1]
       glutPositionWindow(screen.width - preview_size[0], 8)
       glutReshapeWindow(preview_size[0], preview_size[1])
-  elif k == b'x':
-    # x (ROI input)
+  elif k == b'x': # x (ROI input)
     process = False
-    cam.stop_acquisition()
-    cam.disable_auto_wb()
-    cam.disable_aeag()
-    cam.set_height(roi_height)
-    cam.set_offsetY(int(full_size[1]/2 - roi_height/2))
-    cam.start_acquisition()
-    cam.get_image(img)
-    input_size = (img.width, img.height)
+    if config['camcontrol'] == 'ximea':
+      cam.stop_acquisition()
+      cam.disable_auto_wb()
+      cam.disable_aeag()
+      cam.set_height(config["roi_height"])
+      cam.set_offsetY(int(full_size[1]/2 - config["roi_height"]/2))
+      cam.start_acquisition()
+      cam.get_image(img)
+      input_size = (img.width, img.height)
+    elif config['camcontrol'] == 'elphel':
+      elphel.stopStream()
+      elphel.setHeight(48)
+      disableAE()
+      disableAWB()
+      elphel.startStream()
     process = True
   elif k == b'-':
     # minus (decrease line height)
-    line_height = max(1, line_height - 1)
+    config["line_height"] = max(1, config["line_height"] - 1)
   elif k == b'+':
     # plus (increase line height)
-    line_height = line_height + 1
-  elif k ==  b'g':
+    config["line_height"] = config["line_height"] + 1
+  elif k ==  b'h':
     # g (increase gain)
-    cam.set_gain(int(cam.get_gain() + 1))
-  elif k ==  b'f':
+    setGain(getGain() * 1.1)
+  elif k ==  b'g':
     # f (decrease gain)
-    cam.set_gain(int(cam.get_gain() * 0.9))
+    setGain(getGain() * 0.9)
 
 
 def windowReshapeFunc(width, height):
@@ -928,54 +1046,46 @@ def gl_write_big(text):
 
 def on_mouse(button, state, x, y):
   global cam
-  global show_source, input_size, process
+  global input_size, process
   global drag_exp, slider_exp_pos
   global drag_fps, slider_fps_pos
   global button_ae_pos_y, button_input_pos_y, button_scan_pos_y, button_wb_pos_y
   
-  print(button, x, y)
   if button == GLUT_LEFT_BUTTON:
     if state == GLUT_DOWN:
       if y < 100 and abs(x - slider_exp_pos) < 20:
-        print('left down', x, y)
         drag_exp = True
       elif y > preview_size[1] - 100 and abs(x - slider_fps_pos) < 20: 
-        print('left down', x, y)
         drag_fps = True
       elif abs(buttons_pos_x - x) < 50 and abs(button_ae_pos_y - y) < 50: 
-        print('toggle ae', x, y)
-        if cam.is_aeag():
-          cam.disable_aeag()
+        if getAE():
+          disableAE()
         else:
-          cam.enable_aeag()
+          enableAE()
       elif abs(x - buttons_pos_x) < 50 and abs(y - button_wb_pos_y) < 50: 
-        print('trigger wb', x, y)
-        cam.disable_auto_wb()
-        cam.set_manual_wb(1)
+        triggerWB()
       elif abs(x - buttons_pos_x) < 50 and abs(y - button_input_pos_y) < 50: 
-        print('trigger wb', x, y)
-        show_source = not show_source
+        config["show_source"] = not config["show_source"]
       elif abs(x - buttons_pos_x) < 50 and abs(y - button_scan_pos_y) < 50: 
         # l (live / full frame input)
         process = False
-        cam.stop_acquisition()
-        if (input_size[1] == full_size[1]):
-          # set ROI input
-          cam.disable_auto_wb()
-          cam.disable_aeag()
-          cam.set_height(roi_height)
-          cam.set_offsetY(int(full_size[1]/2 - roi_height/2))
-        else:
-          # fullsize input
-          cam.set_offsetY(0)
-          cam.set_height(full_size[1])
-        cam.start_acquisition()
-        cam.get_image(img)
-        input_size = (img.width, img.height)
-        line_index = int(input_size[1]/2) - int(line_height/2)         
-        process = True
-              
-              
+        if config["camcontrol"] == "ximea":
+          cam.stop_acquisition()
+          if (input_size[1] == full_size[1]):
+            # set ROI input
+            cam.disable_auto_wb()
+            cam.disable_aeag()
+            cam.set_height(config["roi_height"])
+            cam.set_offsetY(int(full_size[1]/2 - config["roi_height"]/2))
+          else:
+            # fullsize input
+            cam.set_offsetY(0)
+            cam.set_height(full_size[1])
+          cam.start_acquisition()
+          cam.get_image(img)
+          input_size = (img.width, img.height)
+          line_index = int(input_size[1]/2) - int(config["line_height"]/2)         
+          process = True
     elif state == GLUT_UP:
       print('left up', x, y)
       drag_exp = False
@@ -984,7 +1094,6 @@ def on_mouse(button, state, x, y):
 
 def x2microseconds(val):
   return int(((val / preview_size[0] * val / preview_size[0]) * 10000))
-
 
 def microseconds2x(val):
   return min(math.sqrt(val/10000) * preview_size[0], preview_size[0])
@@ -1008,12 +1117,12 @@ def on_mouse_motion(x, y):
   #if (time.time() - last_drag_time > 0.1):
     #last_drag_time = time.time()
   if (drag_exp):
-    if cam.is_aeag:
-      cam.disable_aeag()
-    cam.set_exposure(x2microseconds(mouse_pos[0]))
+    if getAE():
+      disableAE()
+    setExposure(x2microseconds(mouse_pos[0]))
     
   if (drag_fps):
-    cam.set_framerate(x2fps(mouse_pos[0]))    
+    setFramerate(x2fps(mouse_pos[0]))    
   
 
 
@@ -1031,7 +1140,7 @@ class GpsPoller(Thread):
     global gpsd
     global thread_quit
     global scanlog_file, scanlog_file_single
-    global dist
+    global dist, output_isVideo
 
     last_lat = None
     last_time = None
@@ -1049,6 +1158,7 @@ class GpsPoller(Thread):
             dist = dist + getDistance(gpsd.fix.latitude, last_lat, gpsd.fix.longitude, last_lon)
             last_lat = gpsd.fix.latitude
             last_lon = gpsd.fix.longitude
+        """
         print("{}, {},  {}, {}, {}, {}, {}, {}, {}".format(
           gpsd.fix.mode,
           gpsd.fix.time,
@@ -1060,7 +1170,7 @@ class GpsPoller(Thread):
           gpsd.fix.epy,
           dist
         ))
-
+        """
     scanlog_file_single.close()
     scanlog_file.close()
 
@@ -1106,15 +1216,155 @@ def run():
   glutMouseFunc(on_mouse)
   glutMotionFunc(on_mouse_motion)
   init_gl(preview_size[0], preview_size[1])
-  if fullscreen:
+  if config["fullscreen"]:
     preview_size[0] = screen.width - 32
     glutFullScreen()  
   glutMainLoop()
 
 
+## setings
+
+# framerates
+
+def getFramerate():
+  global cam, config, elphel
+  if config["camcontrol"] == "ximea":
+    return cam.get_framerate()
+  elif config["camcontrol"] == "elphel":
+    return elphel.getFPS()
+  else:
+    return 0
+    
+def setFramerate(value):
+  global cam, config, elphel
+  if config["camcontrol"] == "ximea":
+    cam.set_framerate(value)
+  elif config["camcontrol"] == "elphel":
+    elphel.setFPS(value)
+  else:
+    return 0    
+    
+# exposure time
+
+def getExposure():
+  global cam, config, elphel
+  if config["camcontrol"] == "ximea":
+    return cam.get_exposure()
+  elif config["camcontrol"] == "elphel":
+    return elphel.getExposure()    
+  else:
+    return 0
+    
+def setExposure(value):
+  global cam, config, elphel
+  if config["camcontrol"] == "ximea":
+    cam.set_exposure(value)
+  elif config["camcontrol"] == "elphel":
+    elphel.setExposure(value)
+  else:
+    return 0       
+    
+## auto exposre
+    
+def getAE():
+  global cam, config
+  if config["camcontrol"] == "ximea":
+    return cam.is_aeag()
+  elif config["camcontrol"] == "elphel":
+    return elphel.getAutoExposureStatus()     
+  else:
+    return 0
+    
+def enableAE():
+  global cam, config, elphel
+  if config["camcontrol"] == "ximea":
+    cam.enable_aeag()
+  elif config["camcontrol"] == "elphel":
+    elphel.setAutoExposureOn()
+  else:
+    return 0  
+
+def disableAE():
+  global cam, config, elphel
+  if config["camcontrol"] == "ximea":
+    cam.disable_aeag()
+  elif config["camcontrol"] == "elphel":
+    elphel.setAutoExposureOff()
+  else:
+    return 0  
+  
+# auto white balane
+
+def enableAWB():
+  global cam, config, elphel
+  if config["camcontrol"] == "ximea":
+    cam.enable_auto_wb()
+  elif config["camcontrol"] == "elphel":
+    elphel.setAutoExposureOn()
+  else:
+    return 0  
+
+def disableAWB():
+  global cam, config, elphel
+  if config["camcontrol"] == "ximea":
+    cam.disable_auto_wb()
+  elif config["camcontrol"] == "elphel":
+    elphel.setAutoWhiteBalanceOff()
+  else:
+    return 0  
+
+def getAWB():
+  global cam, config, elphel
+  if config["camcontrol"] == "ximea":
+    return cam.is_auto_wb()
+  elif config["camcontrol"] == "elphel":
+    return elphel.getAutoWhiteBalanceStatus()
+  else:
+    return 0    
+  
+def triggerWB():
+  global cam, config, elphel
+  disableAWB()
+  if config["camcontrol"] == "ximea":
+    if input_size[1] > 48:
+      cam.set_manual_wb(1)
+  elif config["camcontrol"] == "elphel":
+    elphel.setAutoWhiteBalance()
+  else:
+    return 0  
+    
+## gain
+
+def getGain():
+  global cam, config, elphel
+  if config["camcontrol"] == "ximea":
+    return cam.get_gain()
+  elif config["camcontrol"] == "elphel":
+    return elphel.getGain()      
+  else:
+    return 0    
+
+def setGain(value):
+  global cam, config, elphel
+  if config["camcontrol"] == "ximea":
+    cam.set_gain(value)
+  elif config["camcontrol"] == "elphel":
+    elphel.setGain(value)
+  else:
+    return 0       
+     
+def quit():
+  global thread_quit
+  global video_thread
+  
+  thread_quit = 1
+  # video_writer_thread.join()
+  glutLeaveMainLoop()
+
 
 if __name__ == '__main__':
   try:
+    process_args()
     init()
     # start video processing thread
     video_thread = Thread(target=update_frame, args=())
@@ -1131,7 +1381,7 @@ if __name__ == '__main__':
     run()
 
   except (KeyboardInterrupt, SystemExit): #when you press ctrl+c
-    print("\nKilling Thread...")
-    video_thread.join()
+    if video_thread:
+      video_thread.join()
 
   print("Done.\nExiting.")
