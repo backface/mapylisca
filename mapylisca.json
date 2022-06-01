@@ -1,0 +1,13 @@
+{
+  "output_path": "scan-data/",
+  "output_format": "avi",
+  "jpeg_quality": 95,
+  "line_height": 2,
+  "roi_height": 8,
+  "start_with_roi": false,
+  "initial_exposure": 0,
+  "initial_framerate": 500,
+  "output_height": 256,
+  "output_rotate": true,
+  "show_source": true
+}

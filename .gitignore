@@ -1,4 +1,6 @@
-scan_data
+scan-data
+tile-data
+tmp
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
