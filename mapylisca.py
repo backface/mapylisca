@@ -961,10 +961,11 @@ def key_pressed(k, x, y):
       input_size = (img.width, img.height)
       line_index = int(input_size[1]/2) - int(config["line_height"]/2)
     elif config['camcontrol'] == 'elphel':
-      elphel.stopStream()
       elphel.setHeight(elphel.getMaxHeight())
-      line_index = int(input_size[1]/2) - int(config["line_height"]/2)
-      elphel.startStream()
+      line_index = int(input_size[1]/2) - int(config["line_height"]/2)     
+      time.sleep(2)
+      cam.release()
+      cam = cv2.VideoCapture(config["pipeline"], cv2.CAP_GSTREAMER)       
     process = True
   elif k == b'a': # a (auto exposure)e
     if getAE():
@@ -992,11 +993,12 @@ def key_pressed(k, x, y):
       cam.get_image(img)
       input_size = (img.width, img.height)
     elif config['camcontrol'] == 'elphel':
-      elphel.stopStream()
       elphel.setHeight(48)
       disableAE()
       disableAWB()
-      elphel.startStream()
+      time.sleep(2)
+      cam.release()
+      cam = cv2.VideoCapture(config["pipeline"], cv2.CAP_GSTREAMER)
     process = True
   elif k == b'-':
     # minus (decrease line height)
