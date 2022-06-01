@@ -627,9 +627,12 @@ def draw_gl_scene():
       tile_texture_ids = glGenTextures(num_tiles)
     else:
       tile_texture_ids = [ glGenTextures(num_tiles)]
-    black = Image.fromarray(black_frame).tobytes('raw', 'BGRA', 0, -1)
+    black = Image.fromarray(black_frame)
+    tile = black.tobytes('raw', 'BGRA', 0, -1)
     for i in range(0, num_tiles):
-      tile_buffer.append(black)
+      tile_buffer.append(tile)
+      ix = black.size[0]
+      iy = black.size[1]
       glBindTexture(GL_TEXTURE_2D, tile_texture_ids[i])
       glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
       glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
