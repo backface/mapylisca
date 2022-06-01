@@ -7,3 +7,5 @@ Pillow==9.0.1
 PyOpenGL==3.1.6
 screeninfo==0.8
 six==1.16.0
+requests===2.27.1
+imageio-ffmpeg===0.4.7

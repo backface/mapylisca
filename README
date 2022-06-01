@@ -1,1 +1,19 @@
-a client side linescanner (currently for Ximea cameras) written in Python
+a client side linescanner written in Python
+
+currently support XIMEA cameras (including camera control), Elphel 353
+(including camera control) and any gstreamer input pipeline (no control)
+
+
+##  Installation
+
+on debian/ubunut
+
+```
+apt-get install python3-pip python3-opencv python3-OpenGL
+```
+
+and
+
+```
+pip install -r requirements
+```
