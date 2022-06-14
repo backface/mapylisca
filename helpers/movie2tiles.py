@@ -25,8 +25,8 @@ from libs.myutils import *
 
 output = "tile-data"
 format = "JPEG"
-out_w = 2592
-out_h = 2592
+out_w = 0
+out_h = 0
 scale = 1
 display = True
 overwriteExisting = False
@@ -36,6 +36,7 @@ inputfiles = []
 darkframe = ""
 whiteframe = ""
 flag_calibration = False
+rotate_input = True
 reverse = False
 jp4 = False
 jp4_gamma = 45
@@ -64,6 +65,7 @@ options:
     -y, --height=HEIGHT     height if output tiles
     -s, --size=WIDTHxHEIGHT final image size
     -n, --nodisplay         don't display visual output
+    -r, --norotate          rotate input
         --gamma             apply gamma
         --darkframe=FILE    darkframe
         --whiteframe=FILE   white (or grey) frame
@@ -90,16 +92,16 @@ def process_args():
 	global process_images, write_log_files, jp4, jp4_gamma
 	global darkframe, whiteframe, flag_calibration, reverse
 	global offset
+	global rotate_input
 
 	try:
-		opts, args = getopt.getopt(sys.argv[1:], "hi:o:n:s:z:l:x:y:m:wf:c:g",
+		opts, args = getopt.getopt(sys.argv[1:], "hi:o:n:s:z:l:x:y:m:wf:c:gr",
 			["help", "input=","output=","overwrite","nodisplay","format=",
 			"nologs","logsonly","darkframe=","whiteframe=","calibration",
 			"reverse","jp4","jp4-gamma=","crop=","stretch=", "size=","offset=",
-			"gamma=","verbose","prefix="])
+			"gamma=","verbose","prefix=","norotate"])
 	except getopt.GetoptError:
-		# print help information and exit:
-		print("wrong options") # will print something like "option -a not recognized"
+		print("wrong options")
 		usage()
 		sys.exit(2)
 
@@ -143,6 +145,8 @@ def process_args():
 			whiteframe = a
 		elif o in ("--nodisplay"):
 			display = False
+		elif o in ("-r","--norotate"):
+			rotate_input = False
 		elif o in ("--nologs"):
 			write_log_files = False
 		elif o in ("--reverse"):
@@ -185,7 +189,7 @@ if __name__ == '__main__':
 	slitscanner = SlitScanner()
 	slitscanner.setFileType("JPEG")
 	slitscanner.setPath(output + "/")
-	slitscanner.setSize(out_w,out_h)
+	slitscanner.setSize(2592, 2592)
 	print(out_w,out_h)
 
 	if flag_calibration:
@@ -193,7 +197,7 @@ if __name__ == '__main__':
 			df_im = Image.open(darkframe)
 			df = np.asarray(df_im)
 
-		# apply gamma to gray frame
+		#apply gamma to gray frame
 		#gf_gamma = 0.89
 		#gf_im = imageGamma(gf_im, (gf_gamma,gf_gamma,gf_gamma))
 
@@ -227,28 +231,19 @@ if __name__ == '__main__':
 	if prefix:
 		slitscanner.setFilePrefix(prefix)
 
-
-	gpxalltrackwriter = GPXWriter(slitscanner.getFileDirectory() +
-		slitscanner.getFilePrefix() + ".gpx")
-	infoallwriter = GeoInfoWriter(slitscanner.getFileDirectory() +
-		slitscanner.getFilePrefix() + ".info")
+	gpxalltrackwriter = GPXWriter(slitscanner.getFileDirectory() + slitscanner.getFilePrefix() + ".gpx")
+	infoallwriter = GeoInfoWriter(slitscanner.getFileDirectory() + slitscanner.getFilePrefix() + ".info")
 
 	totalframecount = 0
 	slitcount = 0
 	px_pos = 0
 	imgcount = 0
 
-	#print glob(inputfiles);
-
-
 	for moviefile in inputfiles:
-	
-		
 		framecount = 0
 
 		if not prefix:
 			slitscanner.setFilePrefix(os.path.basename(moviefile).split(".")[0])
-
 
 		# open and init log files
 		if write_log_files:
@@ -262,43 +257,52 @@ if __name__ == '__main__':
 			logreader = csv.reader(open(logfile,"rb"), delimiter=";")
 
 			noMoreLogLine = False
-			line = logreader.__next__()
+			try:
+				line = logreader.__next__()
+			except:
+				write_log_files = False
+				pass
+
+		if write_log_files:
 			if line[0].find("#"):
 				line = logreader.next()
 
 			createPath(slitscanner.getFileName() + ".log")
-			logwriter = csv.writer(open(slitscanner.getFileName() + ".log","wb"),
-					delimiter=";")
+			logwriter = csv.writer(open(slitscanner.getFileName() + ".log","wb"), delimiter=";")
 			infowriter = GeoInfoWriter(slitscanner.getFileName() + ".info")
 			gpxwriter = GPXWriter(slitscanner.getFileName() + ".gpx")
 
-    
 		movie = cv2.VideoCapture(moviefile)
-		if (movie.isOpened()== False): 
+		if (movie.isOpened()== False):
 			print("Error opening video stream or file")
 		else:
 			frame_height = movie.get(4)
 			frame_width = movie.get(3)
-			print(frame_width, frame_height)
+			if rotate_input:
+				frame_height = movie.get(3)
+				frame_width = movie.get(4)
 		# main loop
 		while(movie.isOpened()):
 			ret, frame = movie.read()
-      
-			if ret == True:
 
+			if ret == True:
 				if not hadfirst:
+					if not out_w > 0:
+						out_w = int(frame_width)
+						out_h = int(frame_width)
+					slitscanner.setSize(out_w, out_h)
 					ratio = out_h / float(frame_width)
 					lh = int((frame_height - crop) * ratio * stretch)
 					slitscanner.setSlitWidth(lh)
 					framecount = 0
 					line = [0,0]
 					hadfirst = True
-      
+
 				px_pos = framecount * lh
 				if reverse:
 					px_pos *= -1
 
-				print(px_pos, offset, imgcount, slitcount, frame_width, frame_height, lh)
+				#print(px_pos, offset, imgcount, slitcount, frame_width, frame_height, lh)
 
 				if offset <= px_pos:
 					if (not overwriteExisting  and slitscanner.fileExists()):
@@ -318,7 +322,11 @@ if __name__ == '__main__':
 						else:
 							img_frame = Image.fromarray(frame)
 							img_frame = swapRGB(img_frame)
+
 						pi = img_frame
+
+						if rotate_input:
+							pi = pi.transpose(Image.ROTATE_90)
 
 						# first tests in pattern noise elimination
 						if flag_calibration:
@@ -370,8 +378,8 @@ if __name__ == '__main__':
 							pi = pi.resize((int(pi.size[0] * ratio), int(pi.size[1] * ratio)), Image.ANTIALIAS)
 
 						# rotate image
-						pi = pi.transpose(Image.ROTATE_90) 
-            
+						pi = pi.transpose(Image.ROTATE_270)
+
 						# if jpg swap RGB
 						#if jp4:
 							#pi = swapRGB(pi)
@@ -387,14 +395,14 @@ if __name__ == '__main__':
 							if scale < 1:
 								scale = 1
 							tile = slitscanner.getImage()
-              
+
 							cv_im = cv2.cvtColor(np.array(
-                tile.resize( ((int) (tile.size[0]/scale), (int) (tile.size[1]/scale)), Image.NEAREST)), 
+                tile.resize( ((int) (tile.size[0]/scale), (int) (tile.size[1]/scale)), Image.NEAREST)),
                 cv2.COLOR_RGB2BGR
               )
 
 							cv2.imshow("preview", cv_im)
-              
+
 							if flag_calibration:
 								ts = 24
 								cv2.MoveWindow("original_frame",0,cv_im.height + ts)
