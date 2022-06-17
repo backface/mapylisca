@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 #######################################
 #
 # convert movie frames to tiles or image strips
