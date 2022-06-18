@@ -231,9 +231,6 @@ if __name__ == '__main__':
 	if prefix:
 		slitscanner.setFilePrefix(prefix)
 
-	gpxalltrackwriter = GPXWriter(slitscanner.getFileDirectory() + slitscanner.getFilePrefix() + ".gpx")
-	infoallwriter = GeoInfoWriter(slitscanner.getFileDirectory() + slitscanner.getFilePrefix() + ".info")
-
 	totalframecount = 0
 	slitcount = 0
 	px_pos = 0
@@ -245,6 +242,9 @@ if __name__ == '__main__':
 		if not prefix:
 			slitscanner.setFilePrefix(os.path.basename(moviefile).split(".")[0])
 
+		gpxalltrackwriter = GPXWriter(slitscanner.getFileDirectory() + slitscanner.getFilePrefix() + ".gpx")
+		infoallwriter = GeoInfoWriter(slitscanner.getFileDirectory() + slitscanner.getFilePrefix() + ".info")
+
 		# open and init log files
 		if write_log_files:
 			logfile = moviefile + ".log"
@@ -254,21 +254,23 @@ if __name__ == '__main__':
 				if not os.path.exists(logfile):
 					logfile = moviefile[:-8] + ".avi.log"
 
-			logreader = csv.reader(open(logfile,"rb"), delimiter=";")
+			logreader = csv.reader(open(logfile,"r"), delimiter=",")
 
 			noMoreLogLine = False
 			try:
-				line = logreader.__next__()
+				line = next(logreader)
+				print(line)
 			except:
+				print('no next')
 				write_log_files = False
 				pass
 
 		if write_log_files:
 			if line[0].find("#"):
-				line = logreader.next()
+				line = next(logreader)
 
 			createPath(slitscanner.getFileName() + ".log")
-			logwriter = csv.writer(open(slitscanner.getFileName() + ".log","wb"), delimiter=";")
+			logwriter = csv.writer(open(slitscanner.getFileName() + ".log","w"), delimiter=";")
 			infowriter = GeoInfoWriter(slitscanner.getFileName() + ".info")
 			gpxwriter = GPXWriter(slitscanner.getFileName() + ".gpx")
 
@@ -282,10 +284,12 @@ if __name__ == '__main__':
 				frame_height = movie.get(3)
 				frame_width = movie.get(4)
 		# main loop
-		while(movie.isOpened()):
+    
+		ret = True
+		while(movie.isOpened() and ret):
 			ret, frame = movie.read()
 
-			if ret == True:
+			if ret:
 				if not hadfirst:
 					if not out_w > 0:
 						out_w = int(frame_width)
@@ -424,24 +428,30 @@ if __name__ == '__main__':
 						pattern1 = "none";
 						pattern2 = "1970-01-01T00:00:00.0Z"
 
+						print(line)
+						print(len(line))      
 						while int(line[0]) < framecount and not noMoreLogLine:
 							try:
 								last_line = line
-								line = logreader.next()
+								line = next(logreader)
 								noMoreLogLine = False
+								print(line)
 							except:
 								print("no more log lines")
 								noMoreLogLine = True
-
-						if int(line[0]) == framecount and len(line)>14 and not re.search(pattern1, line[2]) and not re.search(pattern2, line[1]):
+    
+						print(line)
+						print(len(line))
+						if int(line[0]) == framecount: #and len(line)>14 and not re.search(pattern1, line[2]) and not re.search(pattern2, line[1]):
 
 							tmp = line[:]
 							tmp[0] = px_pos - offset
+							print(tmp)
 							logwriter.writerow(tmp)
 
 							gpxalltrackwriter.addTrackpoint(
-								float(line[3]), float(line[4]),
-								line[1], float(line[5]), float(line[6]),
+								float(line[1]), float(line[2]),
+								"", float(line[3]), float(line[4]),
 								line[2], "", line[0]
 							)
 							gpxwriter.addTrackpoint(
@@ -467,7 +477,7 @@ if __name__ == '__main__':
 							logwriter = csv.writer(
 								open(
 									slitscanner.getFileName() + ".log",
-									"wb"),
+									"w"),
 								delimiter=";")
 							gpxwriter.save()
 							gpxalltrackwriter.save()

@@ -77,13 +77,15 @@ class SlitScanner:
 			counter = 10000 - self.img_count
 		else:
 			counter = self.img_count
-		scan_file = "%s/%dx%d/%s-%06d" % \
-			(self.path, self.width, self.height, self.prefix, counter)
+		#scan_file = "%s/%dx%d/%s-%06d" % \
+		#	(self.path, self.width, self.height, self.prefix, counter)
+		scan_file = "%s/%s-%06d" % (self.path, self.prefix, counter)
 		return scan_file
 		
 	def getFileDirectory(self):
-		scan_dir = "%s/%dx%d/" % \
-			(self.path, self.width, self.height)
+		#scan_dir = "%s/%dx%d/" % \
+		#	(self.path, self.width, self.height)    
+		scan_dir = "%s/" % (self.path)
 		return scan_dir		
 		
 	def addFrame(self, img):

@@ -6,7 +6,7 @@
   "roi_height": 8,
   "start_with_roi": false,
   "initial_exposure": 0,
-  "initial_framerate": 500,
+  "initial_framerate": 100,
   "output_height": 256,
   "output_rotate": true,
   "ximea_device_id": "UPCBS2211020",

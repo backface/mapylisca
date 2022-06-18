@@ -29,8 +29,8 @@ class GPXWriter:
 		
 	def save(self):
 		self.fh = open(self.filename,"wb")
-		self.fh.write(self.content)
-		self.fh.write(self.getFooter())
+		self.fh.write(bytes(self.content, "UTF-8"))
+		self.fh.write(bytes(self.getFooter(), "UTF-8"))
 		self.close()	
 				
 	def close(self):
@@ -104,7 +104,7 @@ class GeoInfoWriter():
 
 	def save(self):
 		self.fh = open(self.filename,"wb")
-		self.fh.write(self.getInfoString())
+		self.fh.write((bytes(self.getInfoString(), "UTF-8")))
 		self.fh.close()
 
 	def addPoint(self,lat=0,lon=0,utc="",ele=-1000,speed=-1000,hdop=-1,name=""):
