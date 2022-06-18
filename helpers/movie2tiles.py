@@ -450,7 +450,7 @@ if __name__ == '__main__':
 							logwriter.writerow(tmp)
 
 							gpxalltrackwriter.addTrackpoint(
-								float(line[1]), float(line[2]),
+								float(line[3]), float(line[4]),
 								"", float(line[3]), float(line[4]),
 								line[2], "", line[0]
 							)
