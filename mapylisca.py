@@ -301,6 +301,15 @@ def init():
   if config["camcontrol"] == "elphel":
     elphel = Elphel(config["ip"])
 
+  if config["camcontrol"] == "none":
+    cam = cv2.VideoCapture(config["pipeline"], cv2.CAP_GSTREAMER)
+    ret,frame = cam.read()
+    frame = cv2.cvtColor(frame, cv2.COLOR_RGB2RGBA)
+    input_size = (frame.shape[1], frame.shape[0])
+    full_size = input_size
+    output_size = (frame.shape[1], config["output_height"])
+    print(output_size)
+    
   black_frame = np.zeros((output_size[1], output_size[0], 4), dtype=c_ubyte)
   scan_data = copy.deepcopy(black_frame)
   last_full_frame = copy.deepcopy(black_frame)
@@ -388,6 +397,7 @@ def update_frame():
           data = cv2.cvtColor(frame, cv2.COLOR_RGB2RGBA)
         else:
           print("video ended.")
+          do_write_frame = True
           quit()
 
       line_input_index = int(input_size[1]/2) - int(config["line_height"]/2)
@@ -1163,19 +1173,6 @@ class GpsPoller(Thread):
             dist = dist + getDistance(gpsd.fix.latitude, last_lat, gpsd.fix.longitude, last_lon)
             last_lat = gpsd.fix.latitude
             last_lon = gpsd.fix.longitude
-        """
-        print("{}, {},  {}, {}, {}, {}, {}, {}, {}".format(
-          gpsd.fix.mode,
-          gpsd.fix.time,
-          total_lines_count,
-          gpsd.fix.latitude,
-          gpsd.fix.longitude,
-          gpsd.fix.altitude,
-          gpsd.fix.epx,
-          gpsd.fix.epy,
-          dist
-        ))
-        """
     scanlog_file_single.close()
     scanlog_file.close()
 
@@ -1184,20 +1181,47 @@ def write_logline(globalFile=True):
   global gpsd
   global scanlog_file, scanlog_file_single
   global total_lines_count, total_lines_index
+  global dist
 
   target = scanlog_file
   if not globalFile:
     target = scanlog_file_single
 
-  target.write("{}, {}, {}, {}, {}, {}\n".format(
+  target.write("{}; {}; {}; {}; {}; {}; {}; {}; {}; {}; {}; {}; {}; {}; {}\n".format(
      total_lines_count if globalFile else total_lines_index,
+     gpsd.fix.time,
+     gpsd.fix.mode,
      gpsd.fix.latitude,
      gpsd.fix.longitude,
      gpsd.fix.altitude,
+     gpsd.fix.speed,
+     dist,
+     gpsd.fix.track,
+     gpsd.fix.climb,
      gpsd.fix.epx,
      gpsd.fix.epy,
+     gpsd.fix.epv,
+     len(gpsd.satellites),
+     len(list(filter(lambda x: x.used, gpsd.satellites)))
   ))
 
+"""
+    old data
+				utc,
+				gps_status_str,
+				gpsfix.latitude,
+				gpsfix.longitude,
+				gpsfix.altitude,
+				gpsfix.speed * MPS_TO_KPH,
+				distance / 1000,
+				gpsfix.track,
+				gpsfix.climb,
+				gpsfix.epx,
+				gpsfix.epy,
+				gpsfix.epv,
+				gpsdata->satellites_visible,
+				gpsdata->satellites_used);
+"""
 
 def write_logheader(globalFile=True):
   global scanlog_file, scanlog_file_single

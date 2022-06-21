@@ -254,7 +254,7 @@ if __name__ == '__main__':
 				if not os.path.exists(logfile):
 					logfile = moviefile[:-8] + ".avi.log"
 
-			logreader = csv.reader(open(logfile,"r"), delimiter=",")
+			logreader = csv.reader(open(logfile,"r"), delimiter=";")
 
 			noMoreLogLine = False
 			try:
@@ -428,8 +428,7 @@ if __name__ == '__main__':
 						pattern1 = "none";
 						pattern2 = "1970-01-01T00:00:00.0Z"
 
-						print(line)
-						print(len(line))      
+						print(int(line[0]))    
 						while int(line[0]) < framecount and not noMoreLogLine:
 							try:
 								last_line = line
@@ -442,7 +441,7 @@ if __name__ == '__main__':
     
 						print(line)
 						print(len(line))
-						if int(line[0]) == framecount: #and len(line)>14 and not re.search(pattern1, line[2]) and not re.search(pattern2, line[1]):
+						if int(line[0]) == framecount and len(line)>14 and not re.search(pattern1, line[2]) and not re.search(pattern2, line[1]):
 
 							tmp = line[:]
 							tmp[0] = px_pos - offset
@@ -450,7 +449,7 @@ if __name__ == '__main__':
 							logwriter.writerow(tmp)
 
 							gpxalltrackwriter.addTrackpoint(
-								float(line[3]), float(line[4]),
+								float(line[3  ]), float(line[4]),
 								"", float(line[3]), float(line[4]),
 								line[2], "", line[0]
 							)
