@@ -55,10 +55,10 @@ class GPXWriter:
 				self.content += '        <name>%s</name>\n' % name				
 			if cmt != "":
 				self.content += '        <cmt>%s</cmt>\n' % cmt	
-			if fix.strip() > 0:
-				if fix.strip() == "3":
+			if fix > 0:
+				if fix == 3:
 					fix = "3d"
-				elif fix.strip() == "2":
+				elif fix == 2:
 					fix = "2d"
 				self.content += '        <fix>%s</fix>\n' % fix.strip()			
 			self.content += '      </trkpt>\n'

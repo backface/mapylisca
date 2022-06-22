@@ -10,5 +10,5 @@
   "output_height": 256,
   "output_rotate": true,
   "ximea_device_id": "UPCBS2211020",
-  "start_with_autoconfig": true
+  "start_with_autoconfig": false
 }

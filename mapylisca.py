@@ -297,9 +297,11 @@ def init():
     input_size = (frame.shape[1], frame.shape[0])
     full_size = input_size
     output_size = (frame.shape[1], output_size[0])
+    print(output_size)
 
   if config["camcontrol"] == "elphel":
     elphel = Elphel(config["ip"])
+    print(output_size)
 
   if config["camcontrol"] == "none":
     cam = cv2.VideoCapture(config["pipeline"], cv2.CAP_GSTREAMER)
@@ -319,13 +321,13 @@ def init():
   fps_timer_start =  time.time()
 
   # start storing scan results as video
-  outfile = '{}/{}.avi'.format(config["output_path"], time.strftime("%Y-%m-%d_%H-%M-%S", time.gmtime()))
+  outfile = '{}/{}.avi'.format(config["output_path"], time.strftime("%Y-%m-%d_%H-%M-%S", time.localtime()))
   os.makedirs(os.path.dirname(outfile), exist_ok=True)
   scanlog_filename = outfile[:-4] + ".log"
   scanlog_file= open(scanlog_filename, "w", buffering=1)
 
   if not output_isVideo:
-    config["output_path"] = '{}/{}'.format(config["output_path"], time.strftime("%Y-%m-%d_%H-%M-%S", time.gmtime()))
+    config["output_path"] = '{}/{}'.format(config["output_path"], time.strftime("%Y-%m-%d_%H-%M-%S", time.localtime()))
     os.makedirs(config["output_path"], exist_ok=True)
     scanlog_filename = '{}/scan-{:06.0f}.{}'.format(config["output_path"], frame_count+1, "log")
     scanlog_file_single = open(scanlog_filename, "w", buffering=1)
@@ -597,7 +599,7 @@ def draw_gl_scene():
   global elapsed_total
   global text
   global text_gps
-  global gpsd
+  global gpsd, dist
   global mouse_pos
   global zoom_in
   global slider_exp_pos, slider_fps_pos
@@ -767,14 +769,14 @@ def draw_gl_scene():
     elif gpsd.fix.mode < 2:
       text_gps = "GPS: NO FIX"
     else:
-      text_gps = 'GPS: M={}, S={}, LAT={:02.6f}, LON={:02.6f}, ALT={:03.1f}, EPX={}, EPY={}'.format(
+      text_gps = 'GPS: M={}, S={}, LAT={:02.6f}, LON={:02.6f}, ALT={:03.1f}, SPEED={:02.1f} km/h, DIST={:.2f}km'.format(
         gpsd.fix.mode,
         len(list(filter(lambda x: x.used, gpsd.satellites))),
         gpsd.fix.latitude,
         gpsd.fix.longitude,
         gpsd.fix.altitude,
-        gpsd.fix.epx,
-        gpsd.fix.epy
+        gpsd.fix.speed * 3.6, # m/s to km/h
+        dist / 1000
       )
       #print('\r' + text, end=" ... ")
 
@@ -952,11 +954,11 @@ def key_pressed(k, x, y):
   elif k == GLUT_KEY_UP:
     if getAE():
       disableAE()
-    setExposure(getExposure() * 1.05)
+    setExposure(getExposure() * 1.025)
   elif k == GLUT_KEY_DOWN: # down (decrease exposure time)
     if getAE():
       disableAE()
-    setExposure(getExposure() * 0.95)
+    setExposure(getExposure() * 0.975)
   elif k == b'w':  # w (white balance)
     triggerWB()
   elif k == b'i': # i (input toggle)
@@ -1162,6 +1164,7 @@ class GpsPoller(Thread):
 
     while not thread_quit:
       gpsd.next()
+      
       if last_time != gpsd.fix.time:
         last_time = gpsd.fix.time
         if gpsd.fix.mode > 1:
@@ -1169,10 +1172,10 @@ class GpsPoller(Thread):
             write_logline(False)
           write_logline()
         if last_lat:
-          if abs(gpsd.fix.latitude - last_lat) > 0.001:
-            dist = dist + getDistance(gpsd.fix.latitude, last_lat, gpsd.fix.longitude, last_lon)
-            last_lat = gpsd.fix.latitude
-            last_lon = gpsd.fix.longitude
+          #if abs(gpsd.fix.latitude - last_lat) > 0.001:
+          dist = dist + mygeo.getDistGeod(gpsd.fix.latitude, gpsd.fix.longitude,  last_lat, last_lon)
+        last_lat = gpsd.fix.latitude
+        last_lon = gpsd.fix.longitude
     scanlog_file_single.close()
     scanlog_file.close()
 
@@ -1195,7 +1198,7 @@ def write_logline(globalFile=True):
      gpsd.fix.longitude,
      gpsd.fix.altitude,
      gpsd.fix.speed,
-     dist,
+     dist / 1000,
      gpsd.fix.track,
      gpsd.fix.climb,
      gpsd.fix.epx,
@@ -1228,7 +1231,7 @@ def write_logheader(globalFile=True):
   target = scanlog_file
   if not globalFile:
     target = scanlog_file_single
-  target.write("#line, lat, lon, alt, epx, epy\n")
+  target.write("#line; time; status; lat; lon; alt; speed; distance; track; climb; epx; epy; epv; visible satellites; used satellites\n")
 
 
 def run():

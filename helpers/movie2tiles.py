@@ -259,7 +259,6 @@ if __name__ == '__main__':
 			noMoreLogLine = False
 			try:
 				line = next(logreader)
-				print(line)
 			except:
 				print('no next')
 				write_log_files = False
@@ -428,35 +427,32 @@ if __name__ == '__main__':
 						pattern1 = "none";
 						pattern2 = "1970-01-01T00:00:00.0Z"
 
-						print(int(line[0]))    
 						while int(line[0]) < framecount and not noMoreLogLine:
 							try:
 								last_line = line
 								line = next(logreader)
 								noMoreLogLine = False
-								print(line)
 							except:
 								print("no more log lines")
 								noMoreLogLine = True
     
 						print(line)
 						print(len(line))
-						if int(line[0]) == framecount and len(line)>14 and not re.search(pattern1, line[2]) and not re.search(pattern2, line[1]):
-
+						if int(line[0]) == framecount and len(line)>14: #and not re.search(pattern1, line[2]) and not re.search(pattern2, line[1]):
+							print("got it")
 							tmp = line[:]
 							tmp[0] = px_pos - offset
-							print(tmp)
 							logwriter.writerow(tmp)
 
 							gpxalltrackwriter.addTrackpoint(
-								float(line[3  ]), float(line[4]),
+								float(line[3]), float(line[4]),
 								"", float(line[3]), float(line[4]),
-								line[2], "", line[0]
+								int(line[2]), "", line[0]
 							)
 							gpxwriter.addTrackpoint(
 								float(line[3]), float(line[4]),
 								line[1], float(line[5]), float(line[6]),
-								line[2], "", line[0]
+								int(line[2]), "", line[0]
 							)
 							infowriter.addPoint(
 								float(line[3]), float(line[4]),
@@ -466,10 +462,10 @@ if __name__ == '__main__':
 								float(line[3]), float(line[4]),
 								line[1], float(line[5]), float(line[6])
 							)
-							print(line[0], px_pos - offset)
 
 						else:
-							print("discarding corrupted log line", len(line))
+							print("discarding corrupted log line with len", len(line))
+							print(line)
 							print(int(line[0]), framecount)
 
 						if isFull:
