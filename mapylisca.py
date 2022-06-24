@@ -66,7 +66,8 @@ config = {
   "ximea_device_id": None,
   "DEBUG_SPEED": False,
   "input": "ximea",
-  "camcontrol": "ximea"
+  "camcontrol": "ximea",
+  "screenpos": "left"
 }
 
 
@@ -751,13 +752,13 @@ def draw_gl_scene():
 
       slider_exp_pos = microseconds2x(cam_exp)
       slider_fps_pos = fps2x(cam_fps)
-      text = '{:02.0f}:{:02.0f}:{:02.0f} | LH={:0.0f} | #{:0.0f}/#{:0.0f} | REQ: {:3.0f}fps / REAL: {:3.0f}fps | EXP: {:2.2f}ms ({:1.0f}db) | AE={:0.0f} WB={:0.0f} | {:2.2f}ms '.format(
+      text = '{:02.0f}:{:02.0f}:{:02.0f} | LH={:0.0f} | #{:0.0f}/#{:0.0f} | FPS: {:3.0f}/{:3.0f} (real/req) | EXP: {:2.2f}ms ({:1.0f}db) | AE={:0.0f} WB={:0.0f} | {:2.2f}ms '.format(
         (elapsed_total/3600.0),  (elapsed_total/60) % 60, (elapsed_total % 60),
         config["line_height"],
         frame_count,
         line_count,
-        cam_fps,
         fps,
+        cam_fps,
         cam_exp/1000,
         cam_gain,
         cam_is_ae,
@@ -993,8 +994,11 @@ def key_pressed(k, x, y):
       preview_size[0] = screen.width - 32
       glutFullScreen()
     else:
-      preview_size[0] = preview_size[1]
-      glutPositionWindow(screen.width - preview_size[0], 8)
+      preview_size[0] = preview_size[1] #int(screen.width / 2) #preview_size[1]
+      if config["screenpos"] == "right":
+        glutPositionWindow(screen.width - preview_size[0], 8)
+      else:
+        glutPositionWindow(0, 8)
       glutReshapeWindow(preview_size[0], preview_size[1])
   elif k == b'x': # x (ROI input)
     process = False
@@ -1104,7 +1108,6 @@ def on_mouse(button, state, x, y):
           line_index = int(input_size[1]/2) - int(config["line_height"]/2)
           process = True
     elif state == GLUT_UP:
-      print('left up', x, y)
       drag_exp = False
       drag_fps = False
 
@@ -1172,8 +1175,9 @@ class GpsPoller(Thread):
             write_logline(False)
           write_logline()
         if last_lat:
-          #if abs(gpsd.fix.latitude - last_lat) > 0.001:
-          dist = dist + mygeo.getDistGeod(gpsd.fix.latitude, gpsd.fix.longitude,  last_lat, last_lon)
+          rel_dist = mygeo.getDistGeod(gpsd.fix.latitude, gpsd.fix.longitude,  last_lat, last_lon)
+          if rel_dist > 1:
+            dist = dist + rel_dist
         last_lat = gpsd.fix.latitude
         last_lon = gpsd.fix.longitude
     scanlog_file_single.close()
@@ -1251,6 +1255,12 @@ def run():
   if config["fullscreen"]:
     preview_size[0] = screen.width - 32
     glutFullScreen()
+  else:
+    preview_size[0] = preview_size[0] #int(screen.width / 2)
+    if config["screenpos"] == "right":
+      glutPositionWindow(screen.width - preview_size[0], 8)
+    else:
+      glutPositionWindow(0, 8)
   glutMainLoop()
 
 
