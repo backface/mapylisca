@@ -292,10 +292,12 @@ if __name__ == '__main__':
 				if not hadfirst:
 					if not out_w > 0:
 						out_w = int(frame_width)
+          if not out_h > 0:
 						out_h = int(frame_width)
 					slitscanner.setSize(out_w, out_h)
 					ratio = out_h / float(frame_width)
 					lh = int((frame_height - crop) * ratio * stretch)
+					print(lh, frame_height, ratio ,stretch)
 					slitscanner.setSlitWidth(lh)
 					framecount = 0
 					line = [0,0]
@@ -432,13 +434,13 @@ if __name__ == '__main__':
 								last_line = line
 								line = next(logreader)
 								noMoreLogLine = False
+								print(line)
+                
 							except:
 								print("no more log lines")
 								noMoreLogLine = True
-    
-						print(line)
-						print(len(line))
-						if int(line[0]) == framecount and len(line)>14: #and not re.search(pattern1, line[2]) and not re.search(pattern2, line[1]):
+
+						if len(line)>14: #and not re.search(pattern1, line[2]) and not re.search(pattern2, line[1]):
 							print("got it")
 							tmp = line[:]
 							tmp[0] = px_pos - offset

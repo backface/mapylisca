@@ -289,7 +289,7 @@ def init():
     print("get_offsetY_increment", cam.get_offsetY_increment())
     print("=========================")
 
-    output_size = (img.width, output_size[1])
+    output_size = (img.width, config["output_height"])
 
   elif config["input"] == "gstreamer":
     cam = cv2.VideoCapture(config["pipeline"], cv2.CAP_GSTREAMER)
@@ -297,7 +297,7 @@ def init():
     frame = cv2.cvtColor(frame, cv2.COLOR_RGB2RGBA)
     input_size = (frame.shape[1], frame.shape[0])
     full_size = input_size
-    output_size = (frame.shape[1], output_size[0])
+    output_size = (frame.shape[1], config["output_height"])
     print(output_size)
 
   if config["camcontrol"] == "elphel":
@@ -689,30 +689,34 @@ def draw_gl_scene():
       do_shift_tiles = False
 
     # show tile buffers
+    if zoom_in:
+      zoomfactor = 6
+    else:
+      zoomfactor = 1
     for i, buffer_id in enumerate(tile_texture_ids):
       glPushMatrix()
-      glTranslatef((preview_size[1] - padding) - ((len(tile_texture_ids) - i + 1) * 2 * tile_size[1] - tile_size[1]), 0.0, 0.0);
+      glTranslatef((preview_size[1] - padding) - ((len(tile_texture_ids) - i + 1) * 2 * tile_size[1] * zoomfactor - tile_size[1] * zoomfactor), 0.0, 0.0);
       glRotatef(90, 0, 0, 1);
       glEnable(GL_TEXTURE_2D);
       glBindTexture(GL_TEXTURE_2D, buffer_id)
       glBegin(GL_QUADS);
-      glTexCoord2f(0, 0); glVertex3f(-tile_size[0], -tile_size[1], 0);
-      glTexCoord2f(1, 0); glVertex3f( tile_size[0], -tile_size[1], 0);
-      glTexCoord2f(1, 1); glVertex3f( tile_size[0],  tile_size[1], 0);
-      glTexCoord2f(0, 1); glVertex3f(-tile_size[0],  tile_size[1], 0);
+      glTexCoord2f(0, 0); glVertex3f(-tile_size[0] * zoomfactor, -tile_size[1] * zoomfactor, 0);
+      glTexCoord2f(1, 0); glVertex3f( tile_size[0] * zoomfactor, -tile_size[1] * zoomfactor, 0);
+      glTexCoord2f(1, 1); glVertex3f( tile_size[0] * zoomfactor,  tile_size[1] * zoomfactor, 0);
+      glTexCoord2f(0, 1); glVertex3f(-tile_size[0] * zoomfactor,  tile_size[1] * zoomfactor, 0);
       glEnd();
       glPopMatrix()
     # show main scan frame
     glPushMatrix()
-    glTranslatef((preview_size[1] - padding) - tile_size[1], 0.0, 0.0);
+    glTranslatef((preview_size[1] - padding) - tile_size[1] * zoomfactor, 0.0, 0.0);
     glRotatef(90, 0, 0, 1);
     glEnable(GL_TEXTURE_2D);
     glBindTexture(GL_TEXTURE_2D, texture_id)
     glBegin(GL_QUADS);
-    glTexCoord2f(0, 0); glVertex3f(-tile_size[0], -tile_size[1], 0);
-    glTexCoord2f(1, 0); glVertex3f( tile_size[0], -tile_size[1], 0);
-    glTexCoord2f(1, 1); glVertex3f( tile_size[0],  tile_size[1], 0);
-    glTexCoord2f(0, 1); glVertex3f(-tile_size[0],  tile_size[1], 0);
+    glTexCoord2f(0, 0); glVertex3f(-tile_size[0] * zoomfactor, -tile_size[1] * zoomfactor, 0);
+    glTexCoord2f(1, 0); glVertex3f( tile_size[0] * zoomfactor, -tile_size[1] * zoomfactor, 0);
+    glTexCoord2f(1, 1); glVertex3f( tile_size[0] * zoomfactor,  tile_size[1] * zoomfactor, 0);
+    glTexCoord2f(0, 1); glVertex3f(-tile_size[0] * zoomfactor,  tile_size[1] * zoomfactor, 0);
     glEnd();
     glPopMatrix()
 

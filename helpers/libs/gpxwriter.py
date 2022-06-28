@@ -113,10 +113,10 @@ class GeoInfoWriter():
 			self.firstTime = utc
 			self.hasFirst = True
 		else:
-			self.dist += getDistGeod(
-				self.prevLat, self.prevLon,
-				lat, lon)
-
+			dist  =	getDistGeod(self.prevLat, self.prevLon,lat, lon)
+			if dist > 1:
+				self.dist += dist
+ 
 		self.prevLat = lat
 		self.prevLon = lon
 		self.name = name
@@ -129,7 +129,7 @@ class GeoInfoWriter():
 			 self.last_point[0], self.last_point[1])
 		info += "Time: %s to %s\n" % \
 			(self.firstTime, self.lastTime)
-		info += "Distance: %0.3fkm\n" % (self.dist / 1000)
+		info += "Distance: {} km\n".format(self.dist)
 		return info
 
 	def getInfoStringHTML(self):
@@ -138,7 +138,7 @@ class GeoInfoWriter():
 			 self.last_point[0], self.last_point[1])
 		info += "TIME: %s to %s<br />\n" % \
 			(self.firstTime, self.lastTime)
-		info += "DISTANCE: %0.3fkm<br />\n" % (self.dist / 1000)
+		info += "Distance: {} km\n".format(self.dist)
 		return info
 
 	def getDist(self):
