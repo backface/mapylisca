@@ -3,7 +3,7 @@
   "output_format": "avi",
   "jpeg_quality": 95,
   "line_height": 2,
-  "roi_height": 8,
+  "roi_height": 16,
   "start_with_roi": false,
   "initial_exposure": 0,
   "initial_framerate": 100,
@@ -11,5 +11,5 @@
   "output_rotate": true,
   "ximea_device_id": "UPCBS2211020",
   "start_with_autoconfig": true,
-  "DEBUG_SPEED": true
+  "DEBUG_SPEED": false
 }

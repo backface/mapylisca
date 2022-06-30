@@ -3,12 +3,14 @@
   "output_format": "jpg",
   "jpeg_quality": 95,
   "line_height": 2,
-  "roi_height": 8,
+  "roi_height": 32,
   "start_with_roi": false,
   "initial_exposure": 0,
+  "autoexposure": true,
   "initial_framerate": 50,
   "output_height": 128,
   "output_rotate": true,
   "ximea_device_id": "CECAU2019030",
-  "screenpos":"right"
+  "screenpos":"right",
+  "start_with_autoconfig": true
 }

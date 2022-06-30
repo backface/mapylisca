@@ -67,7 +67,10 @@ config = {
   "DEBUG_SPEED": False,
   "input": "ximea",
   "camcontrol": "ximea",
-  "screenpos": "left"
+  "screenpos": "left",
+  "autoexposure": False,
+  "aeag_level_scan": 40,
+  "aeag_level_norm": 50
 }
 
 
@@ -267,8 +270,13 @@ def init():
       cam.get_image(img)
       input_size = (img.width, img.height)
       cam.disable_auto_wb()
-      cam.disable_aeag()
-
+      if not config["autoexposure"]:
+        cam.disable_aeag()
+      else:
+        cam.set_aeag_level(config["aeag_level_scan"])
+    else:
+      if config["aeag_level_norm"] != 50:
+        cam.set_aeag_level(config["aeag_level_norm"])
     # print out camera infos
     print("cam infos")
     print("=========================")
@@ -279,8 +287,11 @@ def init():
     print("get_gain:", cam.get_gain())
     print("get_exposure:", cam.get_exposure())
     print("get_offsetY:", cam.get_offsetY())
-    print("set_height :", cam.get_height())
+    print("get_height :", cam.get_height())
     print("is_iscooled :", cam.is_iscooled())
+    print("get_temp_selector", cam.get_temp_selector())
+    print("get_temp", cam.get_temp())
+    print("get_sensor_board_temp", cam.get_sensor_board_temp())
     #print("get_temp :", cam.get_temp())
     #print("get_chip_temp :", cam.get_chip_temp())
     print("get_framerate :", cam.get_framerate())
@@ -302,7 +313,6 @@ def init():
 
   if config["camcontrol"] == "elphel":
     elphel = Elphel(config["ip"])
-    print(output_size)
 
   if config["camcontrol"] == "none":
     cam = cv2.VideoCapture(config["pipeline"], cv2.CAP_GSTREAMER)
@@ -404,7 +414,6 @@ def update_frame():
           quit()
 
       line_input_index = int(input_size[1]/2) - int(config["line_height"]/2)
-
 
       for i in range(0, config["line_height"]):
         scan_data[line_output_index,:] = data[line_input_index + i,:]
@@ -672,6 +681,17 @@ def draw_gl_scene():
     glEnable(GL_TEXTURE_2D);
     glBindTexture(GL_TEXTURE_2D, texture_id)
     glPopMatrix()
+    
+    # draw lines
+    glPushMatrix()
+    glDisable(GL_TEXTURE_2D);
+    glTranslatef(0.0, 0.0, -0.1)
+    glColor4f(1.0, 1.0, 1.0, 1.0)
+    glBegin(GL_LINES)
+    glVertex3f(0.0, -preview_size[1], 0.0);
+    glVertex3f(0.0, preview_size[1], 0.0);
+    glEnd();
+    glPopMatrix()
 
   # show scan result
   else:
@@ -769,6 +789,9 @@ def draw_gl_scene():
         cam_is_wb,
         elapsed * 1000
       )
+      if config['camcontrol'] == 'ximea':
+        #text += 'TEMP: {:02.1f}°/{:02.1f}°'.format(cam.get_temp(), cam.get_sensor_board_temp())
+        text += '| TEMP: {:02.1f}°'.format(cam.get_temp(), )
     if not gpsd:
       text_gps = 'GPS: NA'
     elif gpsd.fix.mode < 2:
@@ -904,7 +927,7 @@ def draw_gl_scene():
   glDisable(GL_TEXTURE_2D);
   glTranslatef(-(preview_size[0]) + 2 * buttons_pos_x, (preview_size[1]) - 2 * button_scan_pos_y, 0.1)
   glColor4f(1.0, 1.0, 1.0, 0.5)
-  if input_size[1] < 100:
+  if input_size[1] <= 256:
     glBegin(GL_QUADS)
   else:
     glBegin(GL_LINE_LOOP)
@@ -914,7 +937,7 @@ def draw_gl_scene():
   glVertex3f(-50,-50, 0.0)
   glEnd()
   glTranslatef(0, 0, 0.1)
-  if input_size[1] < 100:
+  if input_size[1] <= 256:
     glColor4f(1.0, 0.0, 0, 1.0)
     gl_write_big('ROI')
   else:
@@ -978,6 +1001,7 @@ def key_pressed(k, x, y):
       cam.set_height(full_size[1])
       cam.start_acquisition()
       cam.get_image(img)
+      cam.set_aeag_level(config["aeag_level_norm"])
       input_size = (img.width, img.height)
       line_index = int(input_size[1]/2) - int(config["line_height"]/2)
     elif config['camcontrol'] == 'elphel':
@@ -1009,7 +1033,10 @@ def key_pressed(k, x, y):
     if config['camcontrol'] == 'ximea':
       cam.stop_acquisition()
       cam.disable_auto_wb()
-      cam.disable_aeag()
+      if not config["autoexposure"]:
+        disableAE()
+      else:
+        cam.set_aeag_level(config["aeag_level_scan"])
       cam.set_height(config["roi_height"])
       cam.set_offsetY(int(full_size[1]/2 - config["roi_height"]/2))
       cam.start_acquisition()
@@ -1017,7 +1044,8 @@ def key_pressed(k, x, y):
       input_size = (img.width, img.height)
     elif config['camcontrol'] == 'elphel':
       elphel.setHeight(48)
-      disableAE()
+      if not config["autoexposure"]:
+        disableAE()
       disableAWB()
       time.sleep(2)
       cam.release()
@@ -1035,7 +1063,18 @@ def key_pressed(k, x, y):
   elif k ==  b'g':
     # f (decrease gain)
     setGain(getGain() * 0.9)
-
+  elif k == b'o':
+    cam.set_aeag_level(cam.get_aeag_level() - 1)
+    if input_size[1] <= 256:
+      config['aeag_level_scan']  = cam.get_aeag_level()
+    else:
+      config['aeag_level_norm']  = cam.get_aeag_level()
+  elif k == b'p':
+    cam.set_aeag_level(cam.get_aeag_level() + 1)
+    if input_size[1] <= 256:
+      config['aeag_level_scan']  = cam.get_aeag_level()
+    else:
+      config['aeag_level_norm']  = cam.get_aeag_level()
 
 def windowReshapeFunc(width, height):
   glViewport(0, 0, width, height);
@@ -1098,8 +1137,11 @@ def on_mouse(button, state, x, y):
           cam.stop_acquisition()
           if (input_size[1] == full_size[1]):
             # set ROI input
+            if not config["autoexposure"]:
+              cam.disable_aeag()
+            else:
+              cam.set_aeag_level(config["aeag_level_scan"])
             cam.disable_auto_wb()
-            cam.disable_aeag()
             cam.set_height(config["roi_height"])
             cam.set_offsetY(int(full_size[1]/2 - config["roi_height"]/2))
           else:
@@ -1372,7 +1414,7 @@ def triggerWB():
   global cam, config, elphel
   disableAWB()
   if config["camcontrol"] == "ximea":
-    if input_size[1] > 48:
+    if input_size[1] > 8:
       cam.set_manual_wb(1)
   elif config["camcontrol"] == "elphel":
     elphel.setAutoWhiteBalance()
