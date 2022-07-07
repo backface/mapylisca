@@ -1172,7 +1172,7 @@ def microseconds2x(val):
 
 
 def x2fps(val):
-  return int(1 + (val / preview_size[0]) * 200)
+  return max(3, int(1 + (val / preview_size[0]) * 200))
 
 def fps2x(val):
   return min((val - 1) / 200 * preview_size[0], preview_size[0])
