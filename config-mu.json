@@ -11,5 +11,6 @@
   "output_rotate": true,
   "ximea_device_id": "UPCBS2211020",
   "start_with_autoconfig": true,
-  "DEBUG_SPEED": false
+  "DEBUG_SPEED": false,
+  "screenpos":"right"  
 }
