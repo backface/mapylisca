@@ -1172,10 +1172,10 @@ def microseconds2x(val):
 
 
 def x2fps(val):
-  return int(1 + (val / preview_size[0]) * 999)
+  return int(1 + (val / preview_size[0]) * 200)
 
 def fps2x(val):
-  return min((val - 1) / 999 * preview_size[0], preview_size[0])
+  return min((val - 1) / 200 * preview_size[0], preview_size[0])
 
 
 def on_mouse_motion(x, y):
