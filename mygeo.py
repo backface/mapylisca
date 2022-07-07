@@ -48,6 +48,8 @@ def toRational(number):
           
 # convert to Degrees, Seconds, Minutes format
 def toDegMinSec(value):
+  if math.isnan(value):
+    value = 0 
   abs_value = abs(value)
   deg =  int(abs_value)
   t1 = (abs_value-deg)*60
