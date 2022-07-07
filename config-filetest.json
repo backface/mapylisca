@@ -12,5 +12,6 @@
   "input": "gstreamer",
   "pipeline": "filesrc location=/home/mash/Movies/dune.mp4 ! decodebin ! videoconvert ! video/x-raw, format=BGR ! appsink",
   "pipeline2": "filesrc location=/home/mash/Movies/dune.mp4 ! decodebin ! videoconvert ! video/x-raw, format=BGR ! rotate angle=-1.5707963268 ! appsink",
-  "camcontrol": "none"
+  "camcontrol": "elphel",
+  "ip": "192.168.0.9"
 }

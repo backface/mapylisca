@@ -103,6 +103,7 @@ elapsed = 0
 elapsed_total = 0
 fps_timer_start = 0
 last_print_time = 0
+last_refresh_time = 0
 fps = 0
 text = ''
 text_gps = ''
@@ -605,7 +606,7 @@ def draw_gl_scene():
   global black_frame
   global scan_data
   global frame_count
-  global last_print_time
+  global last_print_time, last_refresh_time
   global elapsed_total
   global text
   global text_gps
@@ -767,12 +768,17 @@ def draw_gl_scene():
   # draw text info
   if (time.time() - last_print_time > 0.5):
     last_print_time = time.time()
+    
     if not thread_quit:
       cam_exp = getExposure()
       cam_fps = getFramerate()
       cam_is_ae = getAE()
       cam_is_wb = getAWB()
       cam_gain = getGain()
+      
+      if config["camcontrol"] == 'elphel' and (time.time() - last_refresh_time > 2.5):
+        elphel.getParamsFromCAM() 
+        last_refresh_time = time.time()
 
       slider_exp_pos = microseconds2x(cam_exp)
       slider_fps_pos = fps2x(cam_fps)

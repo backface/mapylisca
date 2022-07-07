@@ -3,6 +3,7 @@
 # (c) 2010 Michael Aschauer
 #
 
+import threading
 import requests
 import socket
 import logging
@@ -26,6 +27,11 @@ class Camera(object):
 		self.params["BLACKLEVEL"] = 10
 		self.params["SENSOR_WIDTH"] = 2592
 		self.params["SENSOR_HEIGHT"] = 1936		
+  
+		self.FPS = 0
+		self.params["TRIG"] = 0		
+		self.params["AUTOEXP_ON"] = 0	
+		self.params["WB_EN"] = 0	
 				
 		# configure socket timeout
 		timeout = 10
@@ -50,9 +56,11 @@ class Camera(object):
 		self.getParamsFromCAM()
 		
 	def getFPS(self):
+		return self.FPS or 0
+		'''
 		if self.getTrigger():
 			if "TRIG_PERIOD" in self.params:
-				return (96000000.) / (float(self.params["TRIG_PERIOD"]))
+				return int((96000000.) / (float(self.params["TRIG_PERIOD"])))
 			else:
 				return 0			
 		else:
@@ -60,7 +68,8 @@ class Camera(object):
 				return int(self.params["FP1000SLIM"]) / 1000
 			else:
 				return 0
-
+    '''
+    
 	def getMaxWidth(self):
 		if "SENSOR_WIDTH" in self.params:
 			return int(self.params["SENSOR_WIDTH"])
@@ -87,7 +96,7 @@ class Camera(object):
 			return 0		
 		
 	def setHeight(self,value):
-		#self.setParam("WOI_HEIGHT", str(value))
+		#self.setParam("WOI_HEIGHT", str(value))float
 		#return self.setParam("WOI_TOP", str((self.getMaxHeight() - value)/2) )
 		# seems to necessary for photofinish mode to set both at once
 		return self.sendHTTPRequest("setparams.php?WOI_HEIGHT=%s&WOI_TOP=%s" \
@@ -100,11 +109,11 @@ class Camera(object):
 			return 0
 		
 	def setExposure(self,value):
-		return self.setParam("EXPOS", str(value * 1000))
+		return self.setParam("EXPOS", str(value))
 
 	def getExposure(self):
 		if "EXPOS" in self.params:
-			return float(self.params["EXPOS"]) / 1000
+			return float(self.params["EXPOS"])
 		else:
 			return 0
 
@@ -333,7 +342,6 @@ class Camera(object):
 		self.getParamsFromCAM()
 
 	def updateParams(self, data):
-		print(data)
 		if data:
 			#self.logger.debug(data)		
 			xmldoc = minidom.parseString(data)
@@ -351,10 +359,9 @@ class Camera(object):
 		else:
 			return False	
       
-	def getParamsFromCAM(self):
-		url = "getparams.php" 
-		data = self.sendHTTPRequest(url)
-		
+	def getParamsFromCAMTask(self):
+		r = requests.get("http://{}/getparams.php".format(self.ip))
+		data = r.text
 		if data:
 			#self.logger.debug(data)		
 			xmldoc = minidom.parseString(data)
@@ -367,16 +374,20 @@ class Camera(object):
 					key = valNode.tagName
 					value = valNode.firstChild.data
 					self.params[key] = value
-					#self.logger.debug("read param %s: %s" % (key,value))
-			return True
-		else:
-			return False	
-						
+          
+			if self.getTrigger():
+				if "TRIG_PERIOD" in self.params:
+					self.FPS = int((96000000.) / (float(self.params["TRIG_PERIOD"])))
+				if "FP1000SLIM" in self.params:    
+					self.FPS =  int(self.params["FP1000SLIM"]) / 1000
+	
+	def getParamsFromCAM(self):
+		th = threading.Thread(target=self.getParamsFromCAMTask, args=())
+		th.start()		
+    			
 					
-	def sendHTTPRequest(self, url):
-		#return True
+	def sendHTTPRequestTask(self, url):
 		url = "http://%s/%s" % (self.ip, url)
-		self.logger.debug("REQUEST: %s" % (url) )	
 		
 		try:
 			r = requests.get(url)
@@ -384,7 +395,11 @@ class Camera(object):
 			exit(0)
 			return False		
 		except Exception as e:
-			self.logger.warning("error: %s",str(e))
+			print("error: %s",str(e))
 			return False			
 		else:
 			return r.text
+
+	def sendHTTPRequest(self, url):
+		th = threading.Thread(target=self.sendHTTPRequestTask, args=(url,))
+		th.start()	
