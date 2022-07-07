@@ -783,7 +783,7 @@ def draw_gl_scene():
       slider_exp_pos = microseconds2x(cam_exp)
       slider_fps_pos = fps2x(cam_fps)
       text = '{:02.0f}:{:02.0f}:{:02.0f} | LH={:0.0f} | #{:0.0f}/#{:0.0f} | FPS: {:3.0f}/{:3.0f} (real/req) | EXP: {:2.2f}ms ({:1.0f}db) | AE={:0.0f} WB={:0.0f} | {:2.2f}ms '.format(
-        (elapsed_total/3600.0),  (elapsed_total/60) % 60, (elapsed_total % 60),
+        (elapsed_total/3600.0),  (elapsed_total/60), (elapsed_total % 60),
         config["line_height"],
         frame_count,
         line_count,
@@ -1172,7 +1172,7 @@ def microseconds2x(val):
 
 
 def x2fps(val):
-  return max(3, int(1 + (val / preview_size[0]) * 200))
+  return mpax(3, int(1 + (val / preview_size[0]) * 200))
 
 def fps2x(val):
   return min((val - 1) / 200 * preview_size[0], preview_size[0])
