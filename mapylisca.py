@@ -50,6 +50,7 @@ output_rotate = True
 DEBUG_SPEED = True
 
 config = {
+  "name": "rec",
   "output_path": "scan-data/",
   "output_format": "avi",
   "jpeg_quality": 95,
@@ -333,13 +334,13 @@ def init():
   fps_timer_start =  time.time()
 
   # start storing scan results as video
-  outfile = '{}/{}.avi'.format(config["output_path"], time.strftime("%Y-%m-%d_%H-%M-%S", time.localtime()))
+  outfile = '{}/{}-{}.avi'.format(config["output_path"], time.strftime("%Y-%m-%d_%H-%M-%S", time.localtime()), config["name"])
   os.makedirs(os.path.dirname(outfile), exist_ok=True)
   scanlog_filename = outfile[:-4] + ".log"
   scanlog_file= open(scanlog_filename, "w", buffering=1)
 
   if not output_isVideo:
-    config["output_path"] = '{}/{}'.format(config["output_path"], time.strftime("%Y-%m-%d_%H-%M-%S", time.localtime()))
+    config["output_path"] = '{}-{}/{}'.format(config["output_path"], time.strftime("%Y-%m-%d_%H-%M-%S", time.localtime()), config["name"])
     os.makedirs(config["output_path"], exist_ok=True)
     scanlog_filename = '{}/scan-{:06.0f}.{}'.format(config["output_path"], frame_count+1, "log")
     scanlog_file_single = open(scanlog_filename, "w", buffering=1)
@@ -1160,8 +1161,14 @@ def on_mouse(button, state, x, y):
           line_index = int(input_size[1]/2) - int(config["line_height"]/2)
           process = True
     elif state == GLUT_UP:
-      drag_exp = False
-      drag_fps = False
+      mouse_pos[0]  =  min(max(0, x), preview_size[0])
+      mouse_pos[1]  =  min(max(0, y), preview_size[1])
+      if drag_exp:
+        setExposure(x2microseconds(mouse_pos[0]))
+        drag_exp = False
+      if drag_fps:
+        setFramerate(x2fps(mouse_pos[0]))
+        drag_fps = False
 
 
 def x2microseconds(val):
@@ -1191,10 +1198,12 @@ def on_mouse_motion(x, y):
   if (drag_exp):
     if getAE():
       disableAE()
-    setExposure(x2microseconds(mouse_pos[0]))
+    if config["camcontrol"] == "ximea":
+      setExposure(x2microseconds(mouse_pos[0]))
 
   if (drag_fps):
-    setFramerate(x2fps(mouse_pos[0]))
+    if config["camcontrol"] == "ximea":
+      setFramerate(x2fps(mouse_pos[0]))
 
 
 

@@ -1,4 +1,5 @@
 {
+  "name": "mu",
   "output_path": "scan-data/",
   "output_format": "avi",
   "jpeg_quality": 95,
@@ -12,5 +13,5 @@
   "ximea_device_id": "UPCBS2211020",
   "start_with_autoconfig": true,
   "DEBUG_SPEED": false,
-  "screenpos":"right"  
+  "screenpos":"right" 
 }

@@ -1,4 +1,5 @@
 {
+  "name": "xic",
   "output_path": "scan-data/",
   "output_format": "jpg",
   "jpeg_quality": 95,

@@ -292,7 +292,7 @@ if __name__ == '__main__':
 				if not hadfirst:
 					if not out_w > 0:
 						out_w = int(frame_width)
-          if not out_h > 0:
+					if not out_h > 0:
 						out_h = int(frame_width)
 					slitscanner.setSize(out_w, out_h)
 					ratio = out_h / float(frame_width)
