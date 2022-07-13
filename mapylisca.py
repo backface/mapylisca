@@ -340,7 +340,7 @@ def init():
   scanlog_file= open(scanlog_filename, "w", buffering=1)
 
   if not output_isVideo:
-    config["output_path"] = '{}-{}/{}'.format(config["output_path"], time.strftime("%Y-%m-%d_%H-%M-%S", time.localtime()), config["name"])
+    config["output_path"] = '{}/{}-{}'.format(config["output_path"], time.strftime("%Y-%m-%d_%H-%M-%S", time.localtime()), config["name"])
     os.makedirs(config["output_path"], exist_ok=True)
     scanlog_filename = '{}/scan-{:06.0f}.{}'.format(config["output_path"], frame_count+1, "log")
     scanlog_file_single = open(scanlog_filename, "w", buffering=1)
@@ -509,6 +509,7 @@ def update_frame():
 
     if thread_quit:
       break
+      
   print("")
   if config["input"] == "ximea":
     cam.stop_acquisition
@@ -784,7 +785,7 @@ def draw_gl_scene():
       slider_exp_pos = microseconds2x(cam_exp)
       slider_fps_pos = fps2x(cam_fps)
       text = '{:02.0f}:{:02.0f}:{:02.0f} | LH={:0.0f} | #{:0.0f}/#{:0.0f} | FPS: {:3.0f}/{:3.0f} (real/req) | EXP: {:2.2f}ms ({:1.0f}db) | AE={:0.0f} WB={:0.0f} | {:2.2f}ms '.format(
-        math.floor(elapsed_total/3600.0),  math.floor(elapsed_total/60), (math.floor(elapsed_total) % 60),
+        math.floor(elapsed_total/3600.0),  math.floor(elapsed_total/60) % 60, (math.floor(elapsed_total) % 60),
         config["line_height"],
         frame_count,
         line_count,

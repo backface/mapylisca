@@ -97,6 +97,7 @@ class SlitScanner:
 			) )
 
 		if self.reverse:
+			print(self.slit_count)
 			slit = slit.transpose(Image.FLIP_LEFT_RIGHT) 
 			self.scan_img.paste(slit,
 			(self.width - (self.slit_count * self.slitWidth + self.slitWidth), 0,
@@ -105,7 +106,7 @@ class SlitScanner:
 			self.scan_img.paste(slit,
 			(self.slit_count * self.slitWidth, 0,
 			 self.slit_count * self.slitWidth + self.slitWidth, self.height ) )
-			 
+
 		if (self.slit_count + 1) * self.slitWidth >= self.width:
 			self.saveImage()
 			self.scan_img = Image.new("RGB",(self.width,self.height),(255,255,255))
@@ -117,8 +118,9 @@ class SlitScanner:
 			self.slit_count += 1
 			return False
 
-	def addButDontScanFrame(self):
+	def addButDontScanFrame(self):    
 		if (self.slit_count + 1) * self.slitWidth >= self.width:
+			print('would save', (self.slit_count + 1) * self.slitWidth)
 			self.img_count +=1
 			self.slit_count = 0
 			return True

@@ -297,7 +297,7 @@ if __name__ == '__main__':
 					slitscanner.setSize(out_w, out_h)
 					ratio = out_h / float(frame_width)
 					lh = int((frame_height - crop) * ratio * stretch)
-					print(lh, frame_height, ratio ,stretch)
+					print("lh=",lh, "frame_height=", frame_height, "ratio=", ratio, "stretch=", stretch)
 					slitscanner.setSlitWidth(lh)
 					framecount = 0
 					line = [0,0]
@@ -309,7 +309,7 @@ if __name__ == '__main__':
 
 				#print(px_pos, offset, imgcount, slitcount, frame_width, frame_height, lh)
 
-				if offset <= px_pos:
+				if offset <= abs(px_pos):
 					if (not overwriteExisting  and slitscanner.fileExists()):
 						# add frame - if full save logs
 						isFull = slitscanner.addButDontScanFrame()
@@ -369,17 +369,22 @@ if __name__ == '__main__':
 
 						# crop image
 						if crop:
+							print("crop")
 							pi = pi.crop( (0,0,pi.size[0],pi.size[1]-crop) )
 
 						# stretching
 						if stretch != 1:
+							print("stretch")
 							pi = pi.resize( (pi.size[0], int(pi.size[1] *stretch)), Image.ANTIALIAS)
 
 						# apply gamma
 						if gamma != -1:
+							print("gamma")
 							pi = imageGamma(pi, (gamma,gamma,gamma))
 
 						if ratio != 1:
+							print("ratio")
+              
 							pi = pi.resize((int(pi.size[0] * ratio), int(pi.size[1] * ratio)), Image.ANTIALIAS)
 
 						# rotate image
@@ -441,7 +446,6 @@ if __name__ == '__main__':
 								noMoreLogLine = True
 
 						if len(line)>14: #and not re.search(pattern1, line[2]) and not re.search(pattern2, line[1]):
-							print("got it")
 							tmp = line[:]
 							tmp[0] = px_pos - offset
 							logwriter.writerow(tmp)
