@@ -1035,7 +1035,10 @@ def key_pressed(k, x, y):
       disableAE()
     setExposure(getExposure() * 0.975)
   elif k == b'w':  # w (white balance)
-    triggerWB()
+    if config['camcontrol'] == 'ximea':
+      triggerWB()
+    elif config['camcontrol'] == 'elphel':
+      toggleAWB()
   elif k == b'i': # i (input toggle)
     config["show_source"] = not config["show_source"]
   elif k == b'z':  # x (zoom)
@@ -1171,12 +1174,12 @@ def on_mouse(button, state, x, y):
         drag_exp = True
       elif y > preview_size[1] - 100 and abs(x - slider_fps_pos) < 20:
         drag_fps = True
-      elif (x - (preview_size[0] - buttons_pos_x)) and abs(y - button_esc_pos_y) < 50:
+      elif abs(preview_size[0] - buttons_pos_x - x) < 50 and abs(y - button_esc_pos_y) < 50:
         thread_quit = 1
         video_thread.join()
         # video_writer_thread.join()
         glutLeaveMainLoop()
-      elif abs(buttons_pos_x - x) < 50 and abs(button_ae_pos_y - y) < 50:
+      elif abs(buttons_pos_x - buttons_pos_x - x) > 50 and abs(button_ae_pos_y - y) < 50:
         if getAE():
           disableAE()
         else:
@@ -1448,16 +1451,24 @@ def disableAE():
 
 # auto white balane
 
+
+def toggleAWB():
+  if getAWB():
+    disableAWB()
+  else:
+    enableAWB()
+      
 def enableAWB():
   global cam, config, elphel
   if config["camcontrol"] == "ximea":
     cam.enable_auto_wb()
   elif config["camcontrol"] == "elphel":
-    elphel.setAutoExposureOn()
+    elphel.setAutoWhiteBalanceOn()
   else:
     return 0
 
 def disableAWB():
+  global cam_is_wb
   global cam, config, elphel
   if config["camcontrol"] == "ximea":
     cam.disable_auto_wb()
@@ -1482,7 +1493,8 @@ def triggerWB():
     if input_size[1] > 8:
       cam.set_manual_wb(1)
   elif config["camcontrol"] == "elphel":
-    elphel.setAutoWhiteBalance()
+    elphel.setAutoWhiteBalanceOn()
+    elphel.setAutoWhiteBalanceOff()
   else:
     return 0
 
