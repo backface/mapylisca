@@ -129,10 +129,12 @@ drag_fps = False
 last_drag_time = 0
 slider_exp_pos = 0
 slider_fps_pos = 0
-button_ae_pos_y = preview_size[1] * 1 / 5
-button_wb_pos_y = preview_size[1] * 2 / 5
-button_scan_pos_y = preview_size[1] * 3 / 5
-button_input_pos_y = preview_size[1] * 4 / 5
+button_ae_pos_y = preview_size[1] * 1 / 6
+button_wb_pos_y = preview_size[1] * 2 / 6
+button_scan_pos_y = preview_size[1] * 3 / 6
+button_input_pos_y = preview_size[1] * 4 / 6
+button_zoom_pos_y = preview_size[1] * 5 / 6
+button_esc_pos_y = preview_size[1] * 5 / 6
 buttons_pos_x = 50
 
 cam_is_ae = False
@@ -616,7 +618,7 @@ def draw_gl_scene():
   global mouse_pos
   global zoom_in
   global slider_exp_pos, slider_fps_pos
-  global button_ae_pos_y, button_input_pos_y, button_scan_pos_y, button_wb_pos_y
+  global button_ae_pos_y, button_input_pos_y, button_scan_pos_y, button_wb_pos_y, button_zoom_pos_y, button_esc_pos_y
   global cam_is_ae, cam_is_wb, cam_fps, cam_exp, cam_gain
 
   glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
@@ -888,6 +890,21 @@ def draw_gl_scene():
   glPopMatrix()
 
 
+  # draw ESC button
+  glPushMatrix()
+  glDisable(GL_TEXTURE_2D);
+  glTranslatef((preview_size[0]) -2 * buttons_pos_x,  (preview_size[1]) - 2 * button_esc_pos_y, 0.1)
+  glColor4f(1.0, 1.0, 1.0, 0.5)
+  glBegin(GL_LINE_LOOP)
+  glVertex3f(-50, 50, 0.0)
+  glVertex3f( 50, 50, 0.0)
+  glVertex3f( 50,-50, 0.0)
+  glVertex3f(-50,-50, 0.0)
+  glEnd();
+  glTranslatef(0, 0, 0.1)
+  gl_write_big('QUIT')
+  glPopMatrix()
+
   # draw wb button
   glPushMatrix()
   glDisable(GL_TEXTURE_2D);
@@ -952,6 +969,28 @@ def draw_gl_scene():
     gl_write_big('FULL')
   glPopMatrix()
 
+  # draw zoom button
+  glPushMatrix()
+  glDisable(GL_TEXTURE_2D);
+  glTranslatef(-(preview_size[0]) + 2 * buttons_pos_x, (preview_size[1]) - 2 * button_zoom_pos_y, 0.1)
+  glColor4f(1.0, 1.0, 1.0, 0.5)
+  if zoom_in:
+    glBegin(GL_QUADS)
+  else:
+    glBegin(GL_LINE_LOOP)
+  glVertex3f(-50, 50, 0.0)
+  glVertex3f( 50, 50, 0.0)
+  glVertex3f( 50,-50, 0.0)
+  glVertex3f(-50,-50, 0.0)
+  glEnd()
+  glTranslatef(0, 0, 0.1)
+  if zoom_in:
+    glColor4f(1.0, 0.0, 0, 1.0)
+    gl_write_big('-')
+  else:
+    gl_write_big('+')
+  glPopMatrix()
+  
   # draw a triangle
   glPushMatrix()
   glDisable(GL_TEXTURE_2D);
@@ -1122,6 +1161,9 @@ def on_mouse(button, state, x, y):
   global drag_exp, slider_exp_pos
   global drag_fps, slider_fps_pos
   global button_ae_pos_y, button_input_pos_y, button_scan_pos_y, button_wb_pos_y
+  global zoom_in
+  global thread_quit
+  global video_thread
 
   if button == GLUT_LEFT_BUTTON:
     if state == GLUT_DOWN:
@@ -1129,6 +1171,11 @@ def on_mouse(button, state, x, y):
         drag_exp = True
       elif y > preview_size[1] - 100 and abs(x - slider_fps_pos) < 20:
         drag_fps = True
+      elif (x - (preview_size[0] - buttons_pos_x)) and abs(y - button_esc_pos_y) < 50:
+        thread_quit = 1
+        video_thread.join()
+        # video_writer_thread.join()
+        glutLeaveMainLoop()
       elif abs(buttons_pos_x - x) < 50 and abs(button_ae_pos_y - y) < 50:
         if getAE():
           disableAE()
@@ -1136,6 +1183,8 @@ def on_mouse(button, state, x, y):
           enableAE()
       elif abs(x - buttons_pos_x) < 50 and abs(y - button_wb_pos_y) < 50:
         triggerWB()
+      elif abs(x - buttons_pos_x  ) < 50 and abs(y - button_zoom_pos_y) < 50:
+        zoom_in = not zoom_in
       elif abs(x - buttons_pos_x) < 50 and abs(y - button_input_pos_y) < 50:
         config["show_source"] = not config["show_source"]
       elif abs(x - buttons_pos_x) < 50 and abs(y - button_scan_pos_y) < 50:

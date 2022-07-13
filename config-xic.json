@@ -1,7 +1,7 @@
 {
   "name": "xic",
   "output_path": "scan-data/",
-  "output_format": "jpg",
+  "output_format": "avi",
   "jpeg_quality": 95,
   "line_height": 2,
   "roi_height": 32,
