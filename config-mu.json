@@ -14,5 +14,6 @@
   "start_with_autoconfig": true,
   "DEBUG_SPEED": false,
   "screenpos":"left",
-  "fullscreen": false
+  "fullscreen": false,
+  "activate_buttons": false
 }

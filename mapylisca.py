@@ -63,15 +63,17 @@ config = {
   "start_with_autoconfig": False,
   "show_source": False,
   "output_rotate": True,
-  "fullscreen": True,
+  "fullscreen": False,
   "ximea_device_id": None,
   "DEBUG_SPEED": False,
   "input": "ximea",
   "camcontrol": "ximea",
   "screenpos": "left",
-  "autoexposure": False,
+  "autoexposurea": False,
   "aeag_level_scan": 40,
-  "aeag_level_norm": 50
+  "aeag_level_norm": 50,
+  "show_buttons": True,
+  "activate_buttons": True
 }
 
 
@@ -649,7 +651,8 @@ def draw_gl_scene():
   # setup tile textures
   if len(tile_texture_ids) == 0:
     print('setup tiles')
-    num_tiles = max(1, int(preview_size[1] / (output_size[1] * preview_size[0]/output_size[0])))
+    num_tiles = max(1, 1 + int(screen.width / tile_size[1] * ratio))
+    # print(preview_size[0], tile_size[0], tile_size[1], ratio, num_tiles)
     if num_tiles > 1:
       tile_texture_ids = glGenTextures(num_tiles)
     else:
@@ -786,7 +789,7 @@ def draw_gl_scene():
 
       slider_exp_pos = microseconds2x(cam_exp)
       slider_fps_pos = fps2x(cam_fps)
-      text = '{:02.0f}:{:02.0f}:{:02.0f} | LH={:0.0f} | #{:0.0f}/#{:0.0f} | FPS: {:3.0f}/{:3.0f} (real/req) | EXP: {:2.2f}ms ({:1.0f}db) | AE={:0.0f} WB={:0.0f} | {:2.2f}ms '.format(
+      text = '{:02.0f}:{:02.0f}:{:02.0f} | LH={:0.0f} | #{:0.0f}/#{:0.0f} | FPS: {:3.0f}/{:3.0f} | EXP: {:2.2f}ms ({:1.0f}db) | AE={:0.0f} WB={:0.0f} | {:2.2f}ms '.format(
         math.floor(elapsed_total/3600.0),  math.floor(elapsed_total/60) % 60, (math.floor(elapsed_total) % 60),
         config["line_height"],
         frame_count,
@@ -801,7 +804,7 @@ def draw_gl_scene():
       )
       if config['camcontrol'] == 'ximea':
         #text += 'TEMP: {:02.1f}°/{:02.1f}°'.format(cam.get_temp(), cam.get_sensor_board_temp())
-        text += '| TEMP: {:02.1f}°'.format(cam.get_temp(), )
+        text += '| T={:02.1f}°'.format(cam.get_temp(), )
     if not gpsd:
       text_gps = 'GPS: NA'
     elif gpsd.fix.mode < 2:
@@ -819,9 +822,10 @@ def draw_gl_scene():
       #print('\r' + text, end=" ... ")
 
   glPushMatrix()
-  glTranslatef(0.0, 0.0, -0.1)
-  gl_write(text, - len(text) * 9, preview_size[1] - padding - 12)
-  gl_write(text_gps, - len(text) * 9, -(preview_size[1] - padding + 3))
+  glTranslatef(0.0, 0.0, 0.11)
+  glColor4f(1.0, 1.0, 1.0, 1.0)
+  gl_write(text, max(-preview_size[0],-len(text) * 9), preview_size[1] - padding - 12)
+  gl_write(text_gps, max(-preview_size[0],-len(text) * 9), -(preview_size[1] - padding + 3))
   glDisable(GL_TEXTURE_2D);
   glPopMatrix()
 
@@ -866,130 +870,130 @@ def draw_gl_scene():
   glEnd();
   glPopMatrix()
 
-  # draw ae button
-  glPushMatrix()
-  glDisable(GL_TEXTURE_2D);
-  glDepthMask(False);
-  glTranslatef(-(preview_size[0]) + 2 * buttons_pos_x, (preview_size[1]) - 2 * button_ae_pos_y, 0.1)
-  glColor4f(1.0, 1.0, 1.0, 0.5)
-  if cam_is_ae:
-    glBegin(GL_QUADS)
-  else:
-    glBegin(GL_LINE_LOOP)
-  glVertex3f(-50, 50, 0.0)
-  glVertex3f( 50, 50, 0.0)
-  glVertex3f( 50,-50, 0.0)
-  glVertex3f(-50,-50, 0.0)
-  glEnd();
-  if cam_is_ae:
-    glColor4f(1.0, 0.0, 0, 1.0)
-  glTranslatef(0, 0, 0.1)
-  gl_write_big('AE')
-  glDepthMask(True);
+  if (config["show_buttons"]):
+    # draw ae button
+    glPushMatrix()
+    glDisable(GL_TEXTURE_2D);
+    glDepthMask(False);
+    glTranslatef(-(preview_size[0]) + 2 * buttons_pos_x, (preview_size[1]) - 2 * button_ae_pos_y, 0.1)
+    glColor4f(1.0, 1.0, 1.0, 0.5)
+    if cam_is_ae:
+      glBegin(GL_QUADS)
+    else:
+      glBegin(GL_LINE_LOOP)
+    glVertex3f(-50, 50, 0.0)
+    glVertex3f( 50, 50, 0.0)
+    glVertex3f( 50,-50, 0.0)
+    glVertex3f(-50,-50, 0.0)
+    glEnd();
+    if cam_is_ae:
+      glColor4f(1.0, 0.0, 0, 1.0)
+    glTranslatef(0, 0, 0.1)
+    gl_write_big('AE')
+    glDepthMask(True);
+    glPopMatrix()
 
-  glPopMatrix()
+    # draw ESC button
+    if config["activate_buttons"]:
+      glPushMatrix()
+      glDisable(GL_TEXTURE_2D);
+      glTranslatef((preview_size[0]) -2 * buttons_pos_x,  (preview_size[1]) - 2 * button_esc_pos_y, 0.1)
+      glColor4f(1.0, 1.0, 1.0, 0.5)
+      glBegin(GL_LINE_LOOP)
+      glVertex3f(-50, 50, 0.0)
+      glVertex3f( 50, 50, 0.0)
+      glVertex3f( 50,-50, 0.0)
+      glVertex3f(-50,-50, 0.0)
+      glEnd();
+      glTranslatef(0, 0, 0.1)
+      gl_write_big('QUIT')
+      glPopMatrix()
 
+    # draw wb button
+    glPushMatrix()
+    glDisable(GL_TEXTURE_2D);
+    glTranslatef(-(preview_size[0]) + 2 * buttons_pos_x,  (preview_size[1]) - 2 * button_wb_pos_y, 0.1)
+    glColor4f(1.0, 1.0, 1.0, 0.5)
+    if cam_is_wb:
+      glBegin(GL_QUADS)
+    else:
+      glBegin(GL_LINE_LOOP)
+    glVertex3f(-50, 50, 0.0)
+    glVertex3f( 50, 50, 0.0)
+    glVertex3f( 50,-50, 0.0)
+    glVertex3f(-50,-50, 0.0)
+    glEnd();
+    if cam_is_wb:
+      glColor4f(1.0, 0.0, 0, 1.0)
+    glTranslatef(0, 0, 0.1)
+    gl_write_big('WB')
+    glPopMatrix()
 
-  # draw ESC button
-  glPushMatrix()
-  glDisable(GL_TEXTURE_2D);
-  glTranslatef((preview_size[0]) -2 * buttons_pos_x,  (preview_size[1]) - 2 * button_esc_pos_y, 0.1)
-  glColor4f(1.0, 1.0, 1.0, 0.5)
-  glBegin(GL_LINE_LOOP)
-  glVertex3f(-50, 50, 0.0)
-  glVertex3f( 50, 50, 0.0)
-  glVertex3f( 50,-50, 0.0)
-  glVertex3f(-50,-50, 0.0)
-  glEnd();
-  glTranslatef(0, 0, 0.1)
-  gl_write_big('QUIT')
-  glPopMatrix()
+    # draw source button
+    glPushMatrix()
+    glDisable(GL_TEXTURE_2D);
+    glTranslatef(-(preview_size[0]) + 2 * buttons_pos_x, (preview_size[1]) - 2 * button_input_pos_y, 0.1)
+    glColor4f(1.0, 1.0, 1.0, 0.5)
+    if not config["show_source"]:
+      glBegin(GL_QUADS)
+    else:
+      glBegin(GL_LINE_LOOP)
+    glVertex3f(-50, 50, 0.0)
+    glVertex3f( 50, 50, 0.0)
+    glVertex3f( 50,-50, 0.0)
+    glVertex3f(-50,-50, 0.0)
+    glEnd()
+    glTranslatef(0, 0, 0.1)
+    if not config["show_source"]:
+      glColor4f(1.0, 0.0, 0, 1.0)
+      gl_write_big('SCAN')
+    else:
+      gl_write_big('SRC')
+    glPopMatrix()
 
-  # draw wb button
-  glPushMatrix()
-  glDisable(GL_TEXTURE_2D);
-  glTranslatef(-(preview_size[0]) + 2 * buttons_pos_x,  (preview_size[1]) - 2 * button_wb_pos_y, 0.1)
-  glColor4f(1.0, 1.0, 1.0, 0.5)
-  if cam_is_wb:
-    glBegin(GL_QUADS)
-  else:
-    glBegin(GL_LINE_LOOP)
-  glVertex3f(-50, 50, 0.0)
-  glVertex3f( 50, 50, 0.0)
-  glVertex3f( 50,-50, 0.0)
-  glVertex3f(-50,-50, 0.0)
-  glEnd();
-  if cam_is_wb:
-    glColor4f(1.0, 0.0, 0, 1.0)
-  glTranslatef(0, 0, 0.1)
-  gl_write_big('WB')
-  glPopMatrix()
+    # draw roi button
+    glPushMatrix()
+    glDisable(GL_TEXTURE_2D);
+    glTranslatef(-(preview_size[0]) + 2 * buttons_pos_x, (preview_size[1]) - 2 * button_scan_pos_y, 0.1)
+    glColor4f(1.0, 1.0, 1.0, 0.5)
+    if input_size[1] <= 256:
+      glBegin(GL_QUADS)
+    else:
+      glBegin(GL_LINE_LOOP)
+    glVertex3f(-50, 50, 0.0)
+    glVertex3f( 50, 50, 0.0)
+    glVertex3f( 50,-50, 0.0)
+    glVertex3f(-50,-50, 0.0)
+    glEnd()
+    glTranslatef(0, 0, 0.1)
+    if input_size[1] <= 256:
+      glColor4f(1.0, 0.0, 0, 1.0)
+      gl_write_big('ROI')
+    else:
+      gl_write_big('FULL')
+    glPopMatrix()
 
-  # draw source button
-  glPushMatrix()
-  glDisable(GL_TEXTURE_2D);
-  glTranslatef(-(preview_size[0]) + 2 * buttons_pos_x, (preview_size[1]) - 2 * button_input_pos_y, 0.1)
-  glColor4f(1.0, 1.0, 1.0, 0.5)
-  if not config["show_source"]:
-    glBegin(GL_QUADS)
-  else:
-    glBegin(GL_LINE_LOOP)
-  glVertex3f(-50, 50, 0.0)
-  glVertex3f( 50, 50, 0.0)
-  glVertex3f( 50,-50, 0.0)
-  glVertex3f(-50,-50, 0.0)
-  glEnd()
-  glTranslatef(0, 0, 0.1)
-  if not config["show_source"]:
-    glColor4f(1.0, 0.0, 0, 1.0)
-    gl_write_big('SCAN')
-  else:
-    gl_write_big('SRC')
-  glPopMatrix()
-
-  # draw roi button
-  glPushMatrix()
-  glDisable(GL_TEXTURE_2D);
-  glTranslatef(-(preview_size[0]) + 2 * buttons_pos_x, (preview_size[1]) - 2 * button_scan_pos_y, 0.1)
-  glColor4f(1.0, 1.0, 1.0, 0.5)
-  if input_size[1] <= 256:
-    glBegin(GL_QUADS)
-  else:
-    glBegin(GL_LINE_LOOP)
-  glVertex3f(-50, 50, 0.0)
-  glVertex3f( 50, 50, 0.0)
-  glVertex3f( 50,-50, 0.0)
-  glVertex3f(-50,-50, 0.0)
-  glEnd()
-  glTranslatef(0, 0, 0.1)
-  if input_size[1] <= 256:
-    glColor4f(1.0, 0.0, 0, 1.0)
-    gl_write_big('ROI')
-  else:
-    gl_write_big('FULL')
-  glPopMatrix()
-
-  # draw zoom button
-  glPushMatrix()
-  glDisable(GL_TEXTURE_2D);
-  glTranslatef(-(preview_size[0]) + 2 * buttons_pos_x, (preview_size[1]) - 2 * button_zoom_pos_y, 0.1)
-  glColor4f(1.0, 1.0, 1.0, 0.5)
-  if zoom_in:
-    glBegin(GL_QUADS)
-  else:
-    glBegin(GL_LINE_LOOP)
-  glVertex3f(-50, 50, 0.0)
-  glVertex3f( 50, 50, 0.0)
-  glVertex3f( 50,-50, 0.0)
-  glVertex3f(-50,-50, 0.0)
-  glEnd()
-  glTranslatef(0, 0, 0.1)
-  if zoom_in:
-    glColor4f(1.0, 0.0, 0, 1.0)
-    gl_write_big('-')
-  else:
-    gl_write_big('+')
-  glPopMatrix()
+    # draw zoom button
+    glPushMatrix()
+    glDisable(GL_TEXTURE_2D);
+    glTranslatef(-(preview_size[0]) + 2 * buttons_pos_x, (preview_size[1]) - 2 * button_zoom_pos_y, 0.1)
+    glColor4f(1.0, 1.0, 1.0, 0.5)
+    if zoom_in:
+      glBegin(GL_QUADS)
+    else:
+      glBegin(GL_LINE_LOOP)
+    glVertex3f(-50, 50, 0.0)
+    glVertex3f( 50, 50, 0.0)
+    glVertex3f( 50,-50, 0.0)
+    glVertex3f(-50,-50, 0.0)
+    glEnd()
+    glTranslatef(0, 0, 0.1)
+    if zoom_in:
+      glColor4f(1.0, 0.0, 0, 1.0)
+      gl_write_big('-')
+    else:
+      gl_write_big('+')
+    glPopMatrix()
   
   # draw a triangle
   glPushMatrix()
@@ -1072,7 +1076,7 @@ def key_pressed(k, x, y):
       preview_size[0] = screen.width - 32
       glutFullScreen()
     else:
-      preview_size[0] = preview_size[1] #int(screen.width / 2) #preview_size[1]
+      preview_size[0] = int(screen.width / 2) #preview_size[1] #int(screen.width / 2) #preview_size[1]
       if config["screenpos"] == "right":
         glutPositionWindow(screen.width - preview_size[0], 8)
       else:
@@ -1174,45 +1178,48 @@ def on_mouse(button, state, x, y):
         drag_exp = True
       elif y > preview_size[1] - 100 and abs(x - slider_fps_pos) < 20:
         drag_fps = True
-      elif abs(preview_size[0] - buttons_pos_x - x) < 50 and abs(y - button_esc_pos_y) < 50:
-        thread_quit = 1
-        video_thread.join()
-        # video_writer_thread.join()
-        glutLeaveMainLoop()
-      elif abs(buttons_pos_x - buttons_pos_x - x) > 50 and abs(button_ae_pos_y - y) < 50:
-        if getAE():
-          disableAE()
-        else:
-          enableAE()
-      elif abs(x - buttons_pos_x) < 50 and abs(y - button_wb_pos_y) < 50:
-        triggerWB()
-      elif abs(x - buttons_pos_x  ) < 50 and abs(y - button_zoom_pos_y) < 50:
-        zoom_in = not zoom_in
-      elif abs(x - buttons_pos_x) < 50 and abs(y - button_input_pos_y) < 50:
-        config["show_source"] = not config["show_source"]
-      elif abs(x - buttons_pos_x) < 50 and abs(y - button_scan_pos_y) < 50:
-        # l (live / full frame input)
-        process = False
-        if config["camcontrol"] == "ximea":
-          cam.stop_acquisition()
-          if (input_size[1] == full_size[1]):
-            # set ROI input
-            if not config["autoexposure"]:
-              cam.disable_aeag()
-            else:
-              cam.set_aeag_level(config["aeag_level_scan"])
-            cam.disable_auto_wb()
-            cam.set_height(config["roi_height"])
-            cam.set_offsetY(int(full_size[1]/2 - config["roi_height"]/2))
+    
+      if config["show_buttons"] and config["activate_buttons"]:
+        if abs(preview_size[0] - buttons_pos_x - x) < 50 and abs(y - button_esc_pos_y) < 50:
+          thread_quit = 1
+          video_thread.join()
+          # video_writer_thread.join()
+          glutLeaveMainLoop()
+        elif abs(buttons_pos_x - buttons_pos_x - x) > 50 and abs(button_ae_pos_y - y) < 50:
+          if getAE():
+            disableAE()
           else:
-            # fullsize input
-            cam.set_offsetY(0)
-            cam.set_height(full_size[1])
-          cam.start_acquisition()
-          cam.get_image(img)
-          input_size = (img.width, img.height)
-          line_index = int(input_size[1]/2) - int(config["line_height"]/2)
-          process = True
+            enableAE()
+        elif abs(x - buttons_pos_x) < 50 and abs(y - button_wb_pos_y) < 50:
+          triggerWB()
+        elif abs(x - buttons_pos_x  ) < 50 and abs(y - button_zoom_pos_y) < 50:
+          zoom_in = not zoom_in
+        elif abs(x - buttons_pos_x) < 50 and abs(y - button_input_pos_y) < 50:
+          config["show_source"] = not config["show_source"]
+        elif abs(x - buttons_pos_x) < 50 and abs(y - button_scan_pos_y) < 50:
+          # l (live / full frame input)
+          process = False
+          if config["camcontrol"] == "ximea":
+            cam.stop_acquisition()
+            if (input_size[1] == full_size[1]):
+              # set ROI input
+              if not config["autoexposure"]:
+                cam.disable_aeag()
+              else:
+                cam.set_aeag_level(config["aeag_level_scan"])
+              cam.disable_auto_wb()
+              cam.set_height(config["roi_height"])
+              cam.set_offsetY(int(full_size[1]/2 - config["roi_height"]/2))
+            else:
+              # fullsize input
+              cam.set_offsetY(0)
+              cam.set_height(full_size[1])
+            cam.start_acquisition()
+            cam.get_image(img)
+            input_size = (img.width, img.height)
+            line_index = int(input_size[1]/2) - int(config["line_height"]/2)
+            process = True
+            
     elif state == GLUT_UP:
       mouse_pos[0]  =  min(max(0, x), preview_size[0])
       mouse_pos[1]  =  min(max(0, y), preview_size[1])
@@ -1370,7 +1377,7 @@ def run():
     preview_size[0] = screen.width - 32
     glutFullScreen()
   else:
-    preview_size[0] = preview_size[0] #int(screen.width / 2)
+    preview_size[0] =  int(screen.width / 2)  #preview_size[0] 
     if config["screenpos"] == "right":
       glutPositionWindow(screen.width - preview_size[0], 8)
     else:

@@ -16,5 +16,6 @@
   "camcontrol": "elphel",
   "ip":"192.168.0.9",
   "fullscreen": false,
-  "screenpos":"right" 
+  "screenpos":"right",
+  "activate_buttons": false 
 }
