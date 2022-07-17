@@ -69,7 +69,7 @@ config = {
   "input": "ximea",
   "camcontrol": "ximea",
   "screenpos": "left",
-  "autoexposurea": False,
+  "autoexposure": False,
   "aeag_level_scan": 40,
   "aeag_level_norm": 50,
   "show_buttons": True,
