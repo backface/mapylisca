@@ -632,10 +632,11 @@ def draw_gl_scene():
     ratio = input_size[1]/input_size[0]
   else:
     frame = scan_data
-    if not tile_size:
-      ratio = (preview_size[1] - 3 * padding)/output_size[0]
-      tile_size = (round(output_size[0] * ratio), round(output_size[1] * ratio))
-
+  
+  if not tile_size:
+    ratio = (preview_size[1] - 3 * padding)/output_size[0]
+    tile_size = (round(output_size[0] * ratio), round(output_size[1] * ratio))
+  
   # prepare scan frame texture
   # tx_image = cv2.flip(frame, 0)
   tx_image = Image.fromarray(frame)
