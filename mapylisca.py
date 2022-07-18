@@ -30,6 +30,7 @@ import piexif
 import math
 import getopt
 import json
+import platform
 
 from control.elphel353 import Camera as Elphel
 
@@ -145,6 +146,8 @@ cam_fps = 0
 cam_exp = 0
 cam_gain = 0
 
+is_raspberry = False
+
 mouse_pos = [0,0]
 
 
@@ -199,7 +202,10 @@ def init():
   global scanlog_file, scanlog_file_single
   global config_file
   global output_isVideo
+  global is_raspberry
 
+  is_raspberry = (platform.machine() == "aarch64" or platform.machine() == "armv71")
+  
   if config_file:
     if not os.path.exists(config_file):
       print("can't find config")
@@ -622,6 +628,7 @@ def draw_gl_scene():
   global slider_exp_pos, slider_fps_pos
   global button_ae_pos_y, button_input_pos_y, button_scan_pos_y, button_wb_pos_y, button_zoom_pos_y, button_esc_pos_y
   global cam_is_ae, cam_is_wb, cam_fps, cam_exp, cam_gain
+  global is_raspberry
 
   glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
   glLoadIdentity()
@@ -791,7 +798,7 @@ def draw_gl_scene():
       slider_exp_pos = microseconds2x(cam_exp)
       slider_fps_pos = fps2x(cam_fps)
       #text = '{:02.0f}:{:02.0f}:{:02.0f} | LH={:0.0f} | #{:0.0f}/#{:0.0f} | FPS: {:3.0f}/{:3.0f} | EXP: {:2.2f}ms ({:1.0f}db) | AE={:0.0f} WB={:0.0f} | {:2.2f}ms '.format(
-      text = '{:02.0f}:{:02.0f}:{:02.0f} | LH={:0.0f} | FPS: {:3.0f}/{:3.0f} | EXP: {:2.2f}ms ({:1.0f}db) | AE={:0.0f} WB={:0.0f} | {:2.2f}ms '.format(
+      text = '{:02.0f}:{:02.0f}:{:02.0f} | LH={:0.0f} | FPS: {:.0f}/{:.0f} | EXP: {:2.2f}ms ({:1.0f}db) | AE={:0.0f} WB={:0.0f} | {:2.2f}ms '.format(
         math.floor(elapsed_total/3600.0),  math.floor(elapsed_total/60) % 60, (math.floor(elapsed_total) % 60),
         config["line_height"],
         #frame_count,
@@ -806,7 +813,14 @@ def draw_gl_scene():
       )
       if config['camcontrol'] == 'ximea':
         #text += 'TEMP: {:02.1f}°/{:02.1f}°'.format(cam.get_temp(), cam.get_sensor_board_temp())
-        text += '| T={:02.1f}°'.format(cam.get_temp(), )
+        text += '| T={:02.1f}°'.format(cam.get_temp(), ) 
+      if is_raspberry:
+        if os.path.isfile('/sys/class/thermal/thermal_zone0/temp'):
+          with open('/sys/class/thermal/thermal_zone0/temp') as f:
+            line = f.readline().strip()
+            if line.isdigit():
+              cpu_temp = float(line) / 1000        
+              text += '| CPU={:02.1f}°'.format(cpu_temp) 
     if not gpsd:
       text_gps = 'GPS: NA'
     elif gpsd.fix.mode < 2:
@@ -1089,10 +1103,9 @@ def key_pressed(k, x, y):
     if config['camcontrol'] == 'ximea':
       cam.stop_acquisition()
       cam.disable_auto_wb()
+      cam.set_aeag_level(config["aeag_level_scan"])
       if not config["autoexposure"]:
         disableAE()
-      else:
-        cam.set_aeag_level(config["aeag_level_scan"])
       cam.set_height(config["roi_height"])
       cam.set_offsetY(int(full_size[1]/2 - config["roi_height"]/2))
       cam.start_acquisition()

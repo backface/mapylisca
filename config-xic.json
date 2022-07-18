@@ -12,5 +12,6 @@
   "output_height": 128,
   "output_rotate": true,
   "ximea_device_id": "CECAU2019030",
-  "start_with_autoconfig": true
+  "start_with_autoconfig": true,
+  "aeag_level_scan": 35
 }
