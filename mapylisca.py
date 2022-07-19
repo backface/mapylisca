@@ -798,7 +798,7 @@ def draw_gl_scene():
       slider_exp_pos = microseconds2x(cam_exp)
       slider_fps_pos = fps2x(cam_fps)
       #text = '{:02.0f}:{:02.0f}:{:02.0f} | LH={:0.0f} | #{:0.0f}/#{:0.0f} | FPS: {:3.0f}/{:3.0f} | EXP: {:2.2f}ms ({:1.0f}db) | AE={:0.0f} WB={:0.0f} | {:2.2f}ms '.format(
-      text = '{:02.0f}:{:02.0f}:{:02.0f} | LH={:0.0f} | FPS: {:.0f}/{:.0f} | EXP: {:2.2f}ms ({:1.0f}db) | AE={:0.0f} WB={:0.0f} | {:2.2f}ms '.format(
+      text = '{:02.0f}:{:02.0f}:{:02.0f} | LH={:0.0f} | FPS: {:.0f}/{:.0f} | EXP: {:2.2f}ms ({:1.0f}db) | AE={:0.0f} WB={:0.0f}'.format(
         math.floor(elapsed_total/3600.0),  math.floor(elapsed_total/60) % 60, (math.floor(elapsed_total) % 60),
         config["line_height"],
         #frame_count,
@@ -808,9 +808,10 @@ def draw_gl_scene():
         cam_exp/1000,
         cam_gain,
         cam_is_ae,
-        cam_is_wb,
-        elapsed * 1000
+        cam_is_wb
       )
+      if config["DEBUG_SPEED"]:
+        text += ' | {:2.2f}ms°'.format(elapsed * 1000) 
       if config['camcontrol'] == 'ximea':
         #text += 'TEMP: {:02.1f}°/{:02.1f}°'.format(cam.get_temp(), cam.get_sensor_board_temp())
         text += '| T={:02.1f}°'.format(cam.get_temp(), ) 
